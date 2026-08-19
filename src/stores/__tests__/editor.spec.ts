@@ -5,6 +5,7 @@ import type { CellShape } from '@/domain/modes'
 import { DEFAULT_FG } from '@/domain/palette'
 import { EMPTY_CELL } from '@/domain/screenOps'
 import { defaultSettings, type CreateProjectOptions } from '@/domain/factory'
+import { pixelAspect } from '@/domain/vic'
 import { useEditorStore } from '../editor'
 import { useProjectsStore } from '../projects'
 
@@ -817,6 +818,25 @@ describe('editor store', () => {
       expect(editor.showGrid).toBe(true)
       editor.toggleGrid()
       expect(editor.showGrid).toBe(false)
+    })
+
+    it('opens stretched to this project’s pixel shape, and squares off on toggle', () => {
+      const { editor, projects } = setup()
+      // The preview shows what the machine shows unless asked otherwise
+      expect(editor.aspectCorrected).toBe(true)
+      expect(editor.screenAspect).toBeCloseTo(pixelAspect('ntsc'), 5)
+
+      // A PAL project's pixels are wider still, and the stretch follows the setting
+      editor.setVideo('pal')
+      expect(editor.screenAspect).toBeCloseTo(pixelAspect('pal'), 5)
+      expect(projects.current!.settings.video).toBe('pal')
+
+      editor.toggleAspect()
+      expect(editor.aspectCorrected).toBe(false)
+      expect(editor.screenAspect).toBe(1)
+
+      editor.toggleAspect()
+      expect(editor.screenAspect).toBeCloseTo(pixelAspect('pal'), 5)
     })
 
     it('reset clears the manual-zoom flag so the next project auto-fits', () => {

@@ -15,6 +15,7 @@ import {
   PaintBucket,
   Pencil,
   Plus,
+  Proportions,
   Redo2,
   RotateCcw,
   RotateCw,
@@ -73,7 +74,10 @@ function fit(): void {
   const { width, height } = screenPixelSize(project)
   const padding = 16 // p-2 on both sides of the centering wrapper
   editor.fitScreenScale(
-    Math.min((el.clientWidth - padding) / width, (el.clientHeight - padding) / height),
+    Math.min(
+      (el.clientWidth - padding) / (width * editor.screenAspect),
+      (el.clientHeight - padding) / height,
+    ),
   )
 }
 
@@ -93,6 +97,23 @@ onBeforeUnmount(() => observer?.disconnect())
 // Re-fit when a different project opens (dimensions/space may differ);
 // editor.reset() has already cleared the manual-zoom flag by then
 watch(() => projects.current?.id, fit, { flush: 'post' })
+
+// Correcting the aspect widens the canvas without resizing the viewport, so the
+// observer never sees it — re-fit here instead, unless the user owns the zoom.
+watch(
+  () => editor.screenAspect,
+  () => {
+    if (!editor.screenZoomedManually) fit()
+  },
+  { flush: 'post' },
+)
+
+/** Says which shape the toggle is offering, and what it is worth. */
+const aspectLabel = computed(() =>
+  editor.aspectCorrected
+    ? 'Square Pixels — draw on the grid the bytes describe'
+    : 'Hardware Pixel Shape — VIC pixels are about half again as wide as they are tall',
+)
 
 // --- Screen management dialogs ---
 const showRename = ref(false)
@@ -169,6 +190,14 @@ const statusText = computed(() => (status.value ? formatScreenStatus(status.valu
         @click="editor.toggleGrid()"
       >
         <Grid3x3 class="size-4" />
+      </AppButton>
+      <AppButton
+        :label="aspectLabel"
+        :shortcut="shortcutLabel('toggleAspect')"
+        :active="editor.aspectCorrected"
+        @click="editor.toggleAspect()"
+      >
+        <Proportions class="size-4" />
       </AppButton>
 
       <div class="mx-1.5 h-6 w-px bg-ink-800" />
@@ -341,6 +370,7 @@ const statusText = computed(() => (status.value ? formatScreenStatus(status.valu
           v-if="editor.screenCount > 0"
           :scale="editor.screenScale"
           :show-grid="editor.showGrid"
+          :aspect="editor.screenAspect"
           @hover="hoverCell = $event"
         />
         <!-- Deleting the last screen is refused, so this is only reachable by a

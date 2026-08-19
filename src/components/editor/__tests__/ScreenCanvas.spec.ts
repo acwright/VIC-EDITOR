@@ -298,3 +298,35 @@ describe('ScreenCanvas touch', () => {
     expect(lastHover(wrapper)).toBeNull()
   })
 })
+
+describe('ScreenCanvas aspect correction', () => {
+  beforeEach(() => {
+    localStorage.clear()
+    setActivePinia(createPinia())
+    const projects = useProjectsStore()
+    const project = projects.create({ name: 'Test', seed: 'blank', type: 'hires' })!
+    projects.open(project.id)
+    useEditorStore().reset()
+  })
+
+  it('stretches only the displayed width, leaving the pixel grid alone', () => {
+    const projects = useProjectsStore()
+    const { columns, rows } = projects.current!.settings
+    const wrapper = mount(ScreenCanvas, { props: { scale: 2, showGrid: false, aspect: 1.5 } })
+    const canvas = wrapper.find('canvas').element
+
+    // The backing store is still one logical pixel per screen pixel — the
+    // stretch is a display concern, so nothing exported is affected by it.
+    expect(canvas.width).toBe(columns * CELL_SCREEN_WIDTH)
+    expect(canvas.height).toBe(rows * CELL_HEIGHT)
+    expect(canvas.style.width).toBe(`${columns * CELL_SCREEN_WIDTH * 2 * 1.5}px`)
+    expect(canvas.style.height).toBe(`${rows * CELL_HEIGHT * 2}px`)
+  })
+
+  it('draws square pixels when no aspect is given', () => {
+    const projects = useProjectsStore()
+    const { columns } = projects.current!.settings
+    const wrapper = mount(ScreenCanvas, { props: { scale: 2, showGrid: false } })
+    expect(wrapper.find('canvas').element.style.width).toBe(`${columns * CELL_SCREEN_WIDTH * 2}px`)
+  })
+})

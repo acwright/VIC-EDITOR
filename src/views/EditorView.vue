@@ -78,6 +78,7 @@ const ACTIONS: Record<EditorAction, () => void> = {
   zoomIn: () => editor.zoomScreen(1),
   zoomOut: () => editor.zoomScreen(-1),
   toggleGrid: () => editor.toggleGrid(),
+  toggleAspect: () => editor.toggleAspect(),
 }
 
 function onKeydown(event: KeyboardEvent) {

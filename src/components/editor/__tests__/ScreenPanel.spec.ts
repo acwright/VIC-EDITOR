@@ -3,6 +3,7 @@ import { mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { useEditorStore } from '@/stores/editor'
 import { useProjectsStore } from '@/stores/projects'
+import { pixelAspect } from '@/domain/vic'
 import ScreenPanel from '../ScreenPanel.vue'
 
 /**
@@ -103,6 +104,30 @@ describe('ScreenPanel disabled and empty states', () => {
     await wrapper.vm.$nextTick()
     expect(named(wrapper, 'Delete Screen').attributes('aria-label')).toBe('Delete Screen')
     expect(named(wrapper, 'Previous Screen').attributes('aria-label')).toBe('Previous Screen')
+  })
+
+  it('opens on the hardware pixel shape and squares off on the toggle', async () => {
+    const { wrapper, editor } = mountPanel()
+    const width = () => wrapper.find('canvas').element.style.width
+    const height = () => wrapper.find('canvas').element.style.height
+    const rowsTall = height()
+
+    const stretched = width()
+    // On by default, so the button offers the way back to the square grid
+    expect(named(wrapper, 'Square Pixels').attributes('aria-pressed')).toBe('true')
+
+    await named(wrapper, 'Square Pixels').trigger('click')
+    expect(editor.aspectCorrected).toBe(false)
+    const square = width()
+    expect(parseFloat(square)).toBeLessThan(parseFloat(stretched))
+    expect(parseFloat(stretched)).toBeCloseTo(parseFloat(square) * pixelAspect('ntsc'), 4)
+    expect(named(wrapper, 'Hardware Pixel Shape').attributes('aria-pressed')).toBeUndefined()
+
+    await named(wrapper, 'Hardware Pixel Shape').trigger('click')
+    expect(editor.aspectCorrected).toBe(true)
+    expect(width()).toBe(stretched)
+    // Only the width ever moves — the correction is a horizontal stretch
+    expect(height()).toBe(rowsTall)
   })
 
   it('offers a screen when the project has none', async () => {

@@ -295,6 +295,18 @@ Phase 11 made the app usable without a mouse, and made its refusals speak:
   no-screens state and the quota banner.
 - 33 test specs, 548 tests; `type-check`, `lint`, `test:unit` and `build` all pass.
 
+**Between Phases 11 and 12 the aspect-corrected preview came up from §9.** A VIC pixel is about
+half again as wide as it is tall: 4:3 across roughly 215 active dots and 240 lines on NTSC, 231
+and 288 on PAL (`pixelAspect` in `domain/vic.ts`), so a circle drawn round on the square grid is
+an upright ellipse on the machine. The screen editor opens on that shape and its tool bar toggles
+back to square (`A`) — a screen is a picture of what the machine shows, and the grid the bytes
+describe is one key away when you want to check them. It is deliberately the *only* surface that
+changes: the pixel editor and the character set keep square pixels, because that is the shape you
+author on, and exports are untouched. The correction is a CSS stretch of the canvas's width — the
+canvas still holds one logical pixel per screen pixel, so painting, the grid overlay and the
+keyboard cursor all keep working off the element's proportions, and only the auto-fit measurement
+had to learn about it.
+
 ---
 
 ## 1. Product Summary
@@ -1028,7 +1040,6 @@ structure, and validate output in VICE by hand before Phase 12.
 
 ## 9. Deferred
 
-- Aspect-ratio-corrected preview (VIC pixels are not square).
 - Importing an existing `.prg` / charset dump into a project.
 - 8×16 rotate support (needs a defined non-square rotation).
 - Per-frame color in Shape mode.

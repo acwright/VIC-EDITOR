@@ -14,6 +14,7 @@ import {
   defaultsForExpansion,
   expansionLabel,
   formatRegisterDump,
+  pixelAspect,
   registerBytes,
   registerLabel,
   validateGeometry,
@@ -65,6 +66,12 @@ describe('memory map', () => {
   it('centers the display differently on NTSC and PAL (§2.6)', () => {
     expect(defaultOrigins('ntsc')).toEqual({ horizontal: 5, vertical: 25 })
     expect(defaultOrigins('pal')).toEqual({ horizontal: 12, vertical: 38 })
+  })
+
+  it('makes a VIC pixel wider than it is tall, PAL more so than NTSC', () => {
+    expect(pixelAspect('ntsc')).toBeCloseTo(1.488, 2)
+    expect(pixelAspect('pal')).toBeCloseTo(1.662, 2)
+    expect(pixelAspect('pal')).toBeGreaterThan(pixelAspect('ntsc'))
   })
 })
 

@@ -7,11 +7,21 @@ import { renderScreen, screenPixelSize } from '@/utils/screenRender'
 import { BRUSH_MODES, useEditorStore } from '@/stores/editor'
 import { useProjectsStore } from '@/stores/projects'
 
-defineProps<{
-  /** Display scale, 1–8 (logical pixel → CSS pixels) */
-  scale: number
-  showGrid: boolean
-}>()
+const props = withDefaults(
+  defineProps<{
+    /** Display scale, 1–8 (logical pixel → CSS pixels) */
+    scale: number
+    showGrid: boolean
+    /**
+     * Horizontal stretch: 1 draws square pixels, ~1.5 the shape a VIC pixel
+     * actually has on a 4:3 display. Only the CSS width changes — the canvas
+     * still holds one logical pixel per screen pixel, so painting, the grid
+     * and the cursor all keep working off the element's proportions.
+     */
+    aspect?: number
+  }>(),
+  { aspect: 1 },
+)
 
 /** The cell under the pointer, or null once it leaves — drives the status bar. */
 const emit = defineEmits<{ hover: [PointerCell | null] }>()
@@ -223,7 +233,10 @@ const gridStyle = computed(() => ({
       :width="logicalWidth"
       :height="logicalHeight"
       class="block cursor-crosshair touch-none [image-rendering:pixelated] select-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink-300"
-      :style="{ width: `${logicalWidth * scale}px`, height: `${logicalHeight * scale}px` }"
+      :style="{
+        width: `${logicalWidth * scale * props.aspect}px`,
+        height: `${logicalHeight * scale}px`,
+      }"
       tabindex="0"
       role="application"
       :aria-label="canvasLabel"

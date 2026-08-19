@@ -47,6 +47,7 @@ export type EditorAction =
   | 'zoomIn'
   | 'zoomOut'
   | 'toggleGrid'
+  | 'toggleAspect'
 
 /** Everything the project manager acts on. */
 export type ManagerAction = 'newProject' | 'help'
@@ -117,6 +118,7 @@ export const EDITOR_SHORTCUTS: readonly Shortcut<EditorAction>[] = [
   { action: 'zoomIn', keys: ['+', '='], description: 'Zoom in', group: 'Screen' },
   { action: 'zoomOut', keys: ['-'], description: 'Zoom out', group: 'Screen' },
   { action: 'toggleGrid', keys: ['G'], description: 'Grid overlay', group: 'Screen' },
+  { action: 'toggleAspect', keys: ['A'], description: 'Aspect-corrected preview', group: 'Screen' },
 ]
 
 export const MANAGER_SHORTCUTS: readonly Shortcut<ManagerAction>[] = [

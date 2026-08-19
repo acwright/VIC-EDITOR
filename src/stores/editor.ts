@@ -30,6 +30,7 @@ import { blankPattern, blankScreen } from '@/domain/factory'
 import {
   SCREEN_BASE_GRANULARITY,
   defaultsForExpansion,
+  pixelAspect,
   registerBytes,
   validateGeometry,
   type ExpansionDefaults,
@@ -186,6 +187,22 @@ export const useEditorStore = defineStore('editor', () => {
   const showGrid = ref(true)
   /** True once the user zooms manually; auto-fit pauses until the next project. */
   const screenZoomedManually = ref(false)
+  /**
+   * True when the screen preview is stretched to the hardware pixel shape,
+   * which is how it opens — a screen is a picture of what the machine shows,
+   * and the square grid is one toggle away when you want to check the bytes.
+   */
+  const aspectCorrected = ref(true)
+
+  /**
+   * Horizontal stretch the screen canvas draws at: this project's video
+   * standard's pixel aspect, or 1 once squared off. Only the screen
+   * preview uses it — the character editor and the charset stay square, since
+   * that is the grid the bits are authored on.
+   */
+  const screenAspect = computed(() =>
+    aspectCorrected.value ? pixelAspect(projects.current?.settings.video ?? 'ntsc') : 1,
+  )
 
   function zoomScreen(delta: number): void {
     screenZoomedManually.value = true
@@ -199,6 +216,10 @@ export const useEditorStore = defineStore('editor', () => {
 
   function toggleGrid(): void {
     showGrid.value = !showGrid.value
+  }
+
+  function toggleAspect(): void {
+    aspectCorrected.value = !aspectCorrected.value
   }
 
   function setBrushMode(mode: BrushMode): void {
@@ -806,6 +827,8 @@ export const useEditorStore = defineStore('editor', () => {
     selectedScreen,
     screenScale,
     showGrid,
+    aspectCorrected,
+    screenAspect,
     brushMode,
     brushPaint,
     erasePaint,
@@ -829,6 +852,7 @@ export const useEditorStore = defineStore('editor', () => {
     zoomScreen,
     fitScreenScale,
     toggleGrid,
+    toggleAspect,
     setBrushMode,
     canUndo,
     canRedo,

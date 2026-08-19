@@ -41,7 +41,10 @@ does. Changing a global color repaints every surface at once.
 
 The screen brush writes the character, its color RAM value, or both, so a
 recolor pass leaves the drawing underneath alone; the right button erases
-whichever of those layers the brush covers. Columns and rows are registers the
+whichever of those layers the brush covers. The preview draws pixels the shape a
+VIC pixel really has — about half again as wide as it is tall — so the screen
+looks like what the machine will show, and one tool bar toggle (`A`) squares it
+back off to the grid the bytes describe. Columns and rows are registers the
 whole project shares, so changing them re-fits every screen at once — confirmed
 first when it would crop something, and undoable either way.
 
@@ -133,16 +136,17 @@ under it is announced for a screen reader.
 
 ### Screen
 
-| Key       | Action           |
-| --------- | ---------------- |
-| `1`       | Brush: character |
-| `2`       | Brush: color     |
-| `3`       | Brush: both      |
-| `,`       | Previous screen  |
-| `.`       | Next screen      |
-| `+` / `=` | Zoom in          |
-| `-`       | Zoom out         |
-| `G`       | Grid overlay     |
+| Key       | Action                   |
+| --------- | ------------------------ |
+| `1`       | Brush: character         |
+| `2`       | Brush: color             |
+| `3`       | Brush: both              |
+| `,`       | Previous screen          |
+| `.`       | Next screen              |
+| `+` / `=` | Zoom in                  |
+| `-`       | Zoom out                 |
+| `G`       | Grid overlay             |
+| `A`       | Aspect-corrected preview |
 
 ### Canvas cursor
 

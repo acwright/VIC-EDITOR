@@ -92,7 +92,7 @@ describe('EditorView shortcuts', () => {
     input.remove()
   })
 
-  it('zooms and toggles the grid', () => {
+  it('zooms and toggles the grid and the aspect correction', () => {
     const { editor } = setup()
     const before = editor.screenScale
     press('+')
@@ -102,6 +102,8 @@ describe('EditorView shortcuts', () => {
     const grid = editor.showGrid
     press('g')
     expect(editor.showGrid).toBe(!grid)
+    press('a')
+    expect(editor.aspectCorrected).toBe(false)
   })
 
   it('opens the help dialog on ?, listing the whole map', async () => {

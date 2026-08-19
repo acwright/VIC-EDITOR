@@ -152,6 +152,31 @@ export function defaultOrigins(video: VideoStandard): Origins {
 }
 
 /**
+ * The active picture, in VIC dots across and scanlines down, per standard.
+ *
+ * The chip emits four dots per CPU cycle — 65 cycles a line on NTSC (a 4.09 MHz
+ * dot clock), 71 on PAL (4.43 MHz) — but a CRT only paints the ~52.6 µs of the
+ * NTSC line and ~52 µs of the PAL one that fall outside blanking, which is
+ * where these dot counts come from.
+ */
+const ACTIVE_PICTURE: Record<VideoStandard, { dots: number; lines: number }> = {
+  ntsc: { dots: 215, lines: 240 },
+  pal: { dots: 231, lines: 288 },
+}
+
+/**
+ * How wide a VIC pixel is relative to its height on a 4:3 display — about 1.49
+ * on NTSC and 1.66 on PAL. The editor draws square pixels because that is the
+ * grid you author on; this is the number that stretches the preview back to
+ * what the hardware shows, where a circle drawn round comes out an upright
+ * ellipse.
+ */
+export function pixelAspect(video: VideoStandard): number {
+  const { dots, lines } = ACTIVE_PICTURE[video]
+  return (4 / 3) * (lines / dots)
+}
+
+/**
  * The sixteen register bytes a project's settings describe (§2.5, D14).
  * Read-only and unmodeled registers ($9004 raster, $9006–$900D light pen,
  * paddles and sound) read back as zero.
