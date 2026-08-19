@@ -1,0 +1,3 @@
+# LICENSE is plain text, not Markdown — don't lint it (e.g. MD041
+# "first line should be a heading" fires on the standard MIT header).
+LICENSE

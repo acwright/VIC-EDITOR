@@ -1,0 +1,13 @@
+{
+  "name": "VIC-20 Editor",
+  "short_name": "VIC-20",
+  "description": "Character set and screen editor for the Commodore VIC-20 (MOS 6560/6561).",
+  "icons": [
+    { "src": "icon-192.png", "type": "image/png", "sizes": "192x192" },
+    { "src": "icon-512.png", "type": "image/png", "sizes": "512x512" }
+  ],
+  "start_url": ".",
+  "display": "standalone",
+  "background_color": "#0a0a0a",
+  "theme_color": "#0a0a0a"
+}

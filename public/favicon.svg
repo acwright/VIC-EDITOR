@@ -1,0 +1,35 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="VIC-20 Editor">
+  <rect width="512" height="512" rx="112" fill="#0a0a0a"/>
+  <g fill="#f5f5f5">
+    <rect x="96" y="96" width="40" height="40"/>
+    <rect x="136" y="96" width="40" height="40"/>
+    <rect x="336" y="96" width="40" height="40"/>
+    <rect x="376" y="96" width="40" height="40"/>
+    <rect x="96" y="136" width="40" height="40"/>
+    <rect x="136" y="136" width="40" height="40"/>
+    <rect x="336" y="136" width="40" height="40"/>
+    <rect x="376" y="136" width="40" height="40"/>
+    <rect x="96" y="176" width="40" height="40"/>
+    <rect x="136" y="176" width="40" height="40"/>
+    <rect x="336" y="176" width="40" height="40"/>
+    <rect x="376" y="176" width="40" height="40"/>
+    <rect x="136" y="216" width="40" height="40"/>
+    <rect x="176" y="216" width="40" height="40"/>
+    <rect x="296" y="216" width="40" height="40"/>
+    <rect x="336" y="216" width="40" height="40"/>
+    <rect x="136" y="256" width="40" height="40"/>
+    <rect x="176" y="256" width="40" height="40"/>
+    <rect x="296" y="256" width="40" height="40"/>
+    <rect x="336" y="256" width="40" height="40"/>
+    <rect x="176" y="296" width="40" height="40"/>
+    <rect x="216" y="296" width="40" height="40"/>
+    <rect x="256" y="296" width="40" height="40"/>
+    <rect x="296" y="296" width="40" height="40"/>
+    <rect x="176" y="336" width="40" height="40"/>
+    <rect x="216" y="336" width="40" height="40"/>
+    <rect x="256" y="336" width="40" height="40"/>
+    <rect x="296" y="336" width="40" height="40"/>
+    <rect x="216" y="376" width="40" height="40"/>
+    <rect x="256" y="376" width="40" height="40"/>
+  </g>
+</svg>

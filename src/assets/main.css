@@ -1,0 +1,56 @@
+@import 'tailwindcss';
+
+@theme {
+  /* Typography — Bebas Neue is display-only (headings, chrome labels) */
+  --font-display: 'Bebas Neue', 'Arial Narrow', sans-serif;
+  --font-sans:
+    ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif;
+  --font-mono:
+    ui-monospace, 'SF Mono', SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace;
+
+  /* App chrome — dark-neutral grayscale */
+  --color-ink-950: #0a0a0a;
+  --color-ink-900: #141414;
+  --color-ink-850: #1c1c1c;
+  --color-ink-800: #242424;
+  --color-ink-700: #333333;
+  --color-ink-600: #4d4d4d;
+  --color-ink-500: #6e6e6e;
+  --color-ink-400: #949494;
+  --color-ink-300: #b5b5b5;
+  --color-ink-200: #d4d4d4;
+  --color-ink-100: #ebebeb;
+  --color-ink-50: #f7f7f7;
+
+  /* Chrome accents, drawn from the VIC-20 palette (PLAN.md §2.1). The editable
+     color palette itself lives in `domain/palette.ts`, not here. */
+  --color-ok: #55a049; /* green */
+  --color-warn: #bfce72; /* yellow */
+  --color-alert: #782922; /* red — borders and tinted backgrounds */
+  --color-alert-bright: #b86962; /* light red — icons and text on dark */
+}
+
+/* Checkerboard for the transparent palette swatch. Phase 2 drops it: the VIC
+   has no transparent color (PLAN.md D5). */
+@utility bg-checker {
+  background-image: repeating-conic-gradient(#d4d4d4 0% 25%, #f7f7f7 0% 50%);
+  background-size: 10px 10px;
+}
+
+@layer base {
+  html {
+    @apply bg-ink-950 text-ink-100 font-sans antialiased;
+  }
+
+  h1,
+  h2,
+  h3 {
+    @apply font-display tracking-wide;
+  }
+
+  /* Editing surfaces are precision UIs — don't let stray drags select text */
+  button,
+  [role='button'] {
+    @apply select-none;
+  }
+}
