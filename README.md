@@ -2,61 +2,233 @@ VIC-EDITOR
 ==========
 
 A browser-based character set and screen editor for the [Commodore VIC-20](https://en.wikipedia.org/wiki/VIC-20)
-and its MOS 6560/6561 ("VIC-I") video chip.
+and its MOS 6560/6561 ("VIC-I") video chip. Draw a character set, paint screens
+with it, and export code that assembles, loads or runs on the machine.
 
-> **Status: conversion in progress.** This project was seeded from the TMS9918
-> Character & Screen Editor and is being rebuilt for the VIC-20 in the phases set
-> out in [PLAN.md](PLAN.md). **Phases 1–9 and 11 are complete**: everything
-> specific to the old chip is gone, the VIC's domain model is in place, the
-> character editor draws every cell shape the chip has, the color model is the
-> VIC's own, the screen editor paints color RAM alongside characters, the
-> settings dialog is the project's register-level control panel, export emits
-> code that assembles and runs, new projects start from the ROM character set,
-> and the keyboard, touch and accessibility pass is done. Phase 10 (Shape mode)
-> is optional and not started; this README is rewritten in full at Phase 12.
+**[Open the editor →](https://acwright.github.io/VIC-EDITOR/)**
 
-What works today: create and open projects, draw 8×8, 8×16 hires or 4×8, 4×16
-multicolor characters with the pixel editor (fill / clear / invert, wrapping
-shifts, flips, rotates — all undoable), paint characters and color RAM onto a
-22 × 23 screen at 1×–8× zoom, resize that screen to anything the chip can show,
-manage multiple named screens, and export the character set or a screen as 6502
-assembly, BASIC `DATA`, raw binary, or PNG. Projects autosave to
-`localStorage`, download as `.vic20.json`, and share as a single self-contained
-link.
+![The editor, with a multicolor sample project open](docs/screenshot.png)
 
-The character set shows as scaled blocks, as a scrolling grid of eight a row, or as a list
-with each character's code and whether its slot is still blank — whichever suits the window,
-remembered per browser.
+Everything runs client-side. There is no account, no server and no upload:
+projects live in your browser's `localStorage`, download as `.vic20.json`, and
+share as a single self-contained link.
 
-Everything is reachable without a mouse: one keyboard map drives the editor (see
-[Keyboard](#keyboard) below, or press `?` in the app), and the pixel grid, the
-character set and the screen each take focus and paint under a cursor. On a
-phone or tablet the two columns become two tabs, and both canvases paint under a
-finger.
+## What it does
 
-Color is the VIC's: 16 fixed colors, a per-cell color RAM value, and the
-screen, border and auxiliary registers the whole project shares — with the two
-3-bit fields (character color and border) refusing colors 8–15, as the hardware
-does. Changing a global color repaints every surface at once.
+- **Character editor.** Draw 8×8, 8×16 hires or 4×8, 4×16 multicolor cells on a
+  pixel grid sized to the shape the chip actually reads. Fill, clear, invert,
+  wrapping shifts in four directions, horizontal and vertical flips, and
+  rotation — every one of them undoable.
+- **Character set.** 64, 128 or 256 characters, shown as scaled blocks, as a
+  scrolling grid of eight a row, or as a list with each character's code and
+  whether its slot is still blank — whichever suits the window, remembered per
+  browser. New projects seed from the VIC-20 ROM font rather than from nothing.
+- **Screen editor.** Paint characters and color RAM onto a 22 × 23 screen at
+  1×–8× zoom, resize it to anything the chip can show, and keep as many named
+  screens in a project as you like. The brush writes the character, its color
+  RAM value, or both, so a recolor pass leaves the drawing underneath alone; the
+  right button erases whichever of those layers the brush covers.
+- **The VIC's own color model.** 16 fixed colors, a per-cell color RAM value,
+  and the screen, border and auxiliary registers the whole project shares —
+  with the two 3-bit fields refusing colors 8–15, as the hardware does. Changing
+  a global color repaints every surface at once.
+- **Authentic preview.** The screen draws pixels the shape a VIC pixel really
+  has — about half again as wide as it is tall — so it looks like what the
+  machine will show. One toolbar toggle (`A`) squares it back off to the grid
+  the bytes describe.
+- **Register-level settings.** Screen geometry against the 512-cell color RAM
+  budget, character height and set size, the global colors, NTSC or PAL, and the
+  memory layout — expansion, character base and screen base, with the color RAM
+  address the latter forces. Under it all sits a live `$9000`–`$900F` readout:
+  sixteen bytes in hex, each explaining its fields on hover, copyable as an
+  addressed dump.
+- **Export.** 6502 assembly in three dialects, BASIC `DATA` with a generated
+  loader, `.prg`, raw binary, or PNG. See [Export](#export).
+- **Keyboard and touch.** One keyboard map drives the whole editor, the pixel
+  grid, the character set and the screen each take focus and paint under a
+  cursor, and on a phone or tablet the two columns become two tabs with both
+  canvases painting under a finger.
 
-The screen brush writes the character, its color RAM value, or both, so a
-recolor pass leaves the drawing underneath alone; the right button erases
-whichever of those layers the brush covers. The preview draws pixels the shape a
-VIC pixel really has — about half again as wide as it is tall — so the screen
-looks like what the machine will show, and one tool bar toggle (`A`) squares it
-back off to the grid the bytes describe. Columns and rows are registers the
-whole project shares, so changing them re-fits every screen at once — confirmed
-first when it would crop something, and undoable either way.
+Four sample projects — a title screen, a night landscape, a dungeon and a
+wide-screen layout — are one click from the project list if you would rather
+start from something than from a blank grid.
 
-The settings dialog is where the rest of the chip lives: screen geometry against
-the 512-cell color RAM budget, character height and set size, the global color
-registers, NTSC or PAL, and the memory layout — expansion, character base and
-screen base, with the color RAM address the latter forces. Every field is an
-undoable command, the three that discard content say what they would cost and
-ask first, and changing the expansion offers its conventional layout rather than
-moving memory behind your back. Underneath it all sits a live `$9000–$900F`
-readout: sixteen bytes in hex, each explaining its fields on hover, copyable as
-an addressed dump.
+## The chip
+
+### Colors
+
+The VIC has no transparent color; every pixel resolves to one of these sixteen.
+
+| #   | Name         | Hex       | Character | Border | Screen | Auxiliary |
+| --- | ------------ | --------- | :-------: | :----: | :----: | :-------: |
+| 0   | Black        | `#000000` |    ✅     |   ✅   |   ✅   |    ✅     |
+| 1   | White        | `#FFFFFF` |    ✅     |   ✅   |   ✅   |    ✅     |
+| 2   | Red          | `#782922` |    ✅     |   ✅   |   ✅   |    ✅     |
+| 3   | Cyan         | `#87D6DD` |    ✅     |   ✅   |   ✅   |    ✅     |
+| 4   | Purple       | `#AA5FB6` |    ✅     |   ✅   |   ✅   |    ✅     |
+| 5   | Green        | `#55A049` |    ✅     |   ✅   |   ✅   |    ✅     |
+| 6   | Blue         | `#40318D` |    ✅     |   ✅   |   ✅   |    ✅     |
+| 7   | Yellow       | `#BFCE72` |    ✅     |   ✅   |   ✅   |    ✅     |
+| 8   | Orange       | `#AA7449` |    ❌     |   ❌   |   ✅   |    ✅     |
+| 9   | Light Orange | `#EAB489` |    ❌     |   ❌   |   ✅   |    ✅     |
+| 10  | Light Red    | `#B86962` |    ❌     |   ❌   |   ✅   |    ✅     |
+| 11  | Light Cyan   | `#C7FFFF` |    ❌     |   ❌   |   ✅   |    ✅     |
+| 12  | Light Purple | `#EA9FF6` |    ❌     |   ❌   |   ✅   |    ✅     |
+| 13  | Light Green  | `#94E089` |    ❌     |   ❌   |   ✅   |    ✅     |
+| 14  | Light Blue   | `#8080FF` |    ❌     |   ❌   |   ✅   |    ✅     |
+| 15  | Light Yellow | `#FFFFC0` |    ❌     |   ❌   |   ✅   |    ✅     |
+
+Character color and border color are **3-bit** fields — colors 0–7 only. Screen
+(background) and auxiliary are **4-bit** — all sixteen. The color picker knows
+which slot it is filling and disables 8–15 when it has to, so an impossible
+color is never a thing you can pick and then discover later.
+
+### Cell modes
+
+Which of the two a cell uses is bit 3 of its color RAM value. This editor makes
+that a property of the _character_, not of the cell it sits in, so a glyph looks
+the same everywhere it appears; wanting one glyph both ways means duplicating it.
+
+**Hires** — 8 pixels wide, 8 or 16 tall, 1 bit per pixel:
+
+| Bit | Color                             |
+| --- | --------------------------------- |
+| `0` | Screen color (`$900F` bits 4–7)   |
+| `1` | This cell's color RAM value (0–7) |
+
+**Multicolor** — 4 pixels wide, each double-width so the cell still occupies 8
+screen pixels, 8 or 16 tall, 2 bits per pixel:
+
+| Bits | Color                               |
+| ---- | ----------------------------------- |
+| `00` | Screen color (`$900F` bits 4–7)     |
+| `01` | **Border** color (`$900F` bits 0–2) |
+| `10` | This cell's color RAM value (0–7)   |
+| `11` | Auxiliary color (`$900E` bits 4–7)  |
+
+That `01` is the VIC's signature quirk: the border color does double duty as a
+fill color, so changing the border recolors every multicolor cell on the screen.
+The editor shows it live rather than making you find out on the machine.
+
+**Reverse** (`$900F` bit 3) globally swaps 0 and 1 in hires cells; multicolor
+cells are unaffected. Note the polarity — the bit is _set_ for normal display
+and _clear_ for reverse.
+
+A project picks one of three types up front: **hires** and **multicolor** lock
+every cell to one form, and **mixed** lets each character choose, which is what
+real VIC screens do.
+
+### Screen geometry
+
+Screen size is registers, not a fixed grid:
+
+| Field       | Register         | Range              | Default |
+| ----------- | ---------------- | ------------------ | ------- |
+| Columns     | `$9002` bits 0–6 | 1–31 in the editor | 22      |
+| Rows        | `$9003` bits 1–6 | 1–32 in the editor | 23      |
+| Char height | `$9003` bit 0    | 0 = 8×8, 1 = 8×16  | 8×8     |
+
+**The hard limit is 512 cells**, because color RAM is 512 nybbles. The default
+22 × 23 = 506 sits just under it, and the settings dialog shows the budget as
+you change either field. The column and row caps above are the editor's own,
+chosen conservatively: what a real 6560 displays past about 31 columns depends
+on timing and on the model, and the registers themselves will take larger values
+than anything that resolves into a picture.
+
+Columns and rows are project-wide, so changing them re-fits every screen at
+once — confirmed first when it would crop something, and undoable either way.
+
+## VIC-20 memory notes
+
+This is where people get stuck, so it is worth reading before the first export.
+
+**Where things live depends on what expansion is fitted.** Adding RAM moves
+BASIC's start, which moves the screen, which moves color RAM:
+
+| Expansion        | BASIC start | Screen  | Color RAM | Typical charset  |
+| ---------------- | ----------- | ------- | --------- | ---------------- |
+| Unexpanded (5 K) | `$1001`     | `$1E00` | `$9600`   | `$1C00` (val 15) |
+| +3 K             | `$0401`     | `$1E00` | `$9600`   | `$1C00` (val 15) |
+| +8 K and above   | `$1201`     | `$1000` | `$9400`   | `$1400` (val 13) |
+
+The editor's expansion setting offers that conventional layout rather than
+moving your memory around behind your back — you can still put the screen and
+the charset wherever you like.
+
+**Color RAM is not freely placeable.** It sits at `$9400` or `$9600`, and which
+one you get is decided by `$9002` bit 7 — the same bit that is video-matrix A9.
+Move the screen base across a 512-byte boundary and color RAM follows. The
+settings dialog shows the address the current screen base forces.
+
+**The character base is 1 KB granular** — `$9005` bits 0–3 select one of sixteen
+1 KB blocks:
+
+| Value | Address                      | Value | Address |
+| ----- | ---------------------------- | ----- | ------- |
+| 0     | `$8000` (uppercase ROM)      | 8     | `$0000` |
+| 1     | `$8400` (uppercase reversed) | 9     | `$0400` |
+| 2     | `$8800` (lowercase ROM)      | 10    | `$0800` |
+| 3     | `$8C00` (lowercase reversed) | 11    | `$0C00` |
+| 4     | `$9000`                      | 12    | `$1000` |
+| 5     | `$9400`                      | 13    | `$1400` |
+| 6     | `$9800`                      | 14    | `$1800` |
+| 7     | `$9C00`                      | 15    | `$1C00` |
+
+Values 0–3 are the ROM font, which is why a custom set has to go somewhere in
+8–15. That granularity is also why the set sizes are 64, 128 or 256 characters —
+512 B, 1 KB or 2 KB at 8×8, and double that at 8×16.
+
+**Leave room for it yourself.** On an unexpanded VIC, `$1C00` is inside the
+memory BASIC will happily use, so a program has to lower the top of BASIC before
+it pokes a character set there. The generated loader does _not_ do this — it
+writes each segment to its address and nothing else — so a 2 KB set at `$1C00`
+means reserving that memory first. On +8 K and above there is room at `$1400`
+without moving anything.
+
+**NTSC and PAL** differ in the default screen origins, in how many rows fit, and
+in pixel aspect ratio. The project setting drives all three.
+
+## Export
+
+Pick a scope — the **charset** or a **screen** — then the segments you want and
+a format. Segments are these:
+
+| Segment         | Contents                                                       |
+| --------------- | -------------------------------------------------------------- |
+| `char_patterns` | `charCount × charHeight` bytes, MSB leftmost                   |
+| `screen_N`      | Character codes for screen N, row-major, `columns × rows`      |
+| `colors_N`      | Color RAM for screen N: color in bits 0–2, multicolor in bit 3 |
+| `vic_registers` | The sixteen bytes of `$9000`–`$900F`                           |
+
+And the formats:
+
+| Format       | Extension          | Notes                                                                                 |
+| ------------ | ------------------ | ------------------------------------------------------------------------------------- |
+| **Assembly** | `.s` / `.a`/`.asm` | ca65 / 64tass (`.byte`), ACME (`!byte`) or DASM (`dc.b`). Label case is configurable. |
+| **BASIC**    | `.bas`             | BASIC 2.0 `DATA` lines packed to ≤ 80 characters, with a start line and step you set. |
+| **PRG**      | `.prg`             | The bytes behind a 2-byte little-endian load address, taken from the first segment.   |
+| **Binary**   | `.bin`             | The same bytes with no header at all.                                                 |
+| **PNG**      | `.png`             | The character set as a sheet, or a screen, at 1×–8×.                                  |
+
+The BASIC export can generate a **loader** ahead of the data: one
+`FOR`/`READ`/`POKE` loop per segment, each writing to the address that segment
+belongs at — so selecting `vic_registers` sets up the chip, `char_patterns`
+lands at the configured character base, and a screen and its color RAM go into
+the video matrix and `$9400`/`$9600`. It is the fastest route from this editor
+to something running on a real machine or in VICE.
+
+Because a `.prg` is one contiguous block starting at one address, selecting a
+screen and its color RAM together produces a file that loads at the video matrix
+and runs past the end of it. When the pieces belong at addresses that are not
+adjacent, use the BASIC loader instead.
+
+## Projects and sharing
+
+Projects autosave to `localStorage` under `vic20-editor:*` keys. From the project
+list you can rename, duplicate, delete, download one as `.vic20.json`, upload one
+back, or copy a share link — which packs the whole project into the link's `#v=`
+hash, so no server ever sees it and anyone who opens it gets an editable copy of
+their own. Undo history is per session and travels with neither.
 
 ## Getting started
 
@@ -75,6 +247,10 @@ npm run dev
 | `npm run format`                  | Prettier over `src/`                 |
 | `node scripts/generate-icons.mjs` | Regenerate the icon set in `public/` |
 
+Vue 3 + TypeScript + Pinia + Vue Router + Tailwind, built with Vite and tested
+with Vitest. Pushing to `main` builds and deploys to GitHub Pages; the workflow
+passes `VITE_BASE` so the bundle resolves under `/VIC-EDITOR/`.
+
 ## Layout
 
 ```
@@ -82,9 +258,10 @@ src/domain/       pure logic — no Vue (types, charOps, screenOps, export, seri
 src/persistence/  localStorage repository and preferences
 src/stores/       Pinia stores (projects, editor + undo history)
 src/components/   base/ + editor/ + projects/ components
-src/components/parked/  shelved for PLAN.md Phase 10 (Shape mode); nothing imports it
+src/samples/      the four bundled sample projects
 src/views/        project manager and editor views
-rom/              VIC-20 character ROM dump, build-time input for Phase 8
+rom/              VIC-20 character ROM dump, build-time input only
+scripts/          charset and icon generators
 ```
 
 ## Keyboard
@@ -166,6 +343,24 @@ under it is announced for a screen reader.
 | `N` | New project        |
 | `?` | Keyboard shortcuts |
 
-## License
+## License and attribution
 
-MIT — see [LICENSE](LICENSE).
+The editor's own source is MIT — see [LICENSE](LICENSE). Two pieces of data in
+the repository come from elsewhere and are worth naming.
+
+**The palette.** The sixteen hex values above are VICE's default `vic20`
+palette, from the [VICE](https://vice-emu.sourceforge.io/) project. They are a
+rendering choice rather than hardware truth — real output varies by TV and by
+chip revision — and they live in one table (`src/domain/palette.ts`) so they can
+be swapped for another set.
+
+**The character ROM.** New projects seed from the VIC-20 character generator ROM,
+revision 901460-03. `rom/chargen.bin` is a dump of that ROM, and
+`src/domain/romCharset.ts` is generated from it by `scripts/generate-charset.mjs`.
+This is Commodore's data, not this project's: it is **not** covered by the MIT
+license above, and no license to it is granted or implied here. It is included
+on the same widely-accepted footing as the ROM sets that ship with VICE and other
+emulators, for compatibility with a machine discontinued in 1985. If that is not
+a basis you are comfortable with, seeding a project from `blank` skips the font
+entirely, and deleting `rom/chargen.bin` plus regenerating leaves nothing of it
+in the build.

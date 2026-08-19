@@ -1,0 +1,62 @@
+# Build the editor and publish it to GitHub Pages.
+#
+# Pages serves the site from /VIC-EDITOR/, so the build needs a matching base
+# path; `vite.config.ts` reads it from VITE_BASE and falls back to `/` for
+# local builds.
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# One deploy at a time; let an in-flight run finish rather than cancelling it.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+
+      - run: npm ci
+
+      # Lint without --fix: CI reports, it does not rewrite.
+      - run: npx oxlint .
+      - run: npx eslint .
+
+      - run: npm run test:unit -- --run
+
+      - run: npm run build
+        env:
+          VITE_BASE: /${{ github.event.repository.name }}/
+
+      # Pages has no SPA fallback of its own; a copy of index.html at 404.html
+      # is the conventional way to let deep links reach the router.
+      - run: cp dist/index.html dist/404.html
+
+      - uses: actions/upload-pages-artifact@v4
+        with:
+          path: dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

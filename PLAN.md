@@ -13,8 +13,9 @@ no migration path, no legacy file format to read, and no versioning obligation t
 
 ## Current Status
 
-**Phase 11 (Keyboard, Responsive & Polish) — complete. Phase 10 (Shape Mode, optional) was
-skipped and can still be cut; Phase 12 (README, Screenshot & Release) is next.**
+**Phase 12 (README, Screenshot & Release) — complete. The plan is finished and v1.0.0 is
+released. Phase 10 (Shape Mode, optional) was skipped and remains the one open piece; picking
+it up means reviving `src/components/parked/`, and dropping it means deleting that folder.**
 
 The stack is unchanged from the seed (`tms9918-editor@1.4.1`): Vue 3.5 + TypeScript + Pinia +
 Vue Router + Tailwind 4 + Vite 8, Vitest for tests, with the layering the conversion preserves:
