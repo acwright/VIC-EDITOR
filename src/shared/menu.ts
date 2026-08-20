@@ -6,8 +6,15 @@
  * own (D10). `src/renderer/src/utils/shortcuts.ts` stays the single source of
  * truth for what an action means; this table only says where it appears in the
  * menu bar and what it is called there. `menu.spec.ts` holds the two together —
- * every action in the union appears here exactly once, and every label matches
- * the shortcut's own description.
+ * every action in the union appears here exactly once, and nothing here is an
+ * action the map does not declare.
+ *
+ * Labels are **menu titles, not the shortcut descriptions**: Title Case, and as
+ * short as the surrounding menu allows, per the macOS HIG. "Save now" reads
+ * correctly in the help sheet and wrongly in a File menu, so the two are worded
+ * separately and `menu.spec.ts` checks the capitalisation. Inside the Brush and
+ * Color Target submenus the submenu name carries the noun, so the items are
+ * bare.
  *
  * **No item carries an accelerator, deliberately.** A registered accelerator
  * fires the menu item *and* still delivers the keydown to the page (§3.5), so
@@ -28,7 +35,7 @@ export type MenuSection = 'file' | 'edit' | 'character' | 'brush' | 'color' | 'v
 export interface MenuActionItem {
   /** The `EditorAction` or `ManagerAction` this item dispatches. */
   action: string
-  /** The item's label — the shortcut's own description. */
+  /** The item's title, in Title Case. */
   label: string
   section: MenuSection
   /** Start a new separated group at this item. */
@@ -36,49 +43,46 @@ export interface MenuActionItem {
 }
 
 export const MENU_ACTIONS: readonly MenuActionItem[] = [
-  { action: 'newProject', label: 'New project', section: 'file' },
-  { action: 'save', label: 'Save now', section: 'file', separatorBefore: true },
-  { action: 'back', label: 'Back to the project list', section: 'file', separatorBefore: true },
+  // The ellipsis is the HIG's promise that the command asks for something
+  // before it does anything.
+  { action: 'newProject', label: 'New Project…', section: 'file' },
+  { action: 'save', label: 'Save', section: 'file', separatorBefore: true },
+  { action: 'back', label: 'Back to Projects', section: 'file', separatorBefore: true },
 
   { action: 'undo', label: 'Undo', section: 'edit' },
   { action: 'redo', label: 'Redo', section: 'edit' },
 
-  { action: 'prevChar', label: 'Previous character', section: 'character' },
-  { action: 'nextChar', label: 'Next character', section: 'character' },
-  { action: 'fill', label: 'Fill the character', section: 'character', separatorBefore: true },
-  { action: 'clear', label: 'Clear the character', section: 'character' },
-  { action: 'invert', label: 'Invert the character', section: 'character' },
-  { action: 'flipH', label: 'Flip horizontal', section: 'character', separatorBefore: true },
-  { action: 'flipV', label: 'Flip vertical', section: 'character' },
-  { action: 'rotateRight', label: 'Rotate right', section: 'character' },
-  { action: 'rotateLeft', label: 'Rotate left', section: 'character' },
-  {
-    action: 'shiftLeft',
-    label: 'Shift the pattern left',
-    section: 'character',
-    separatorBefore: true,
-  },
-  { action: 'shiftRight', label: 'Shift the pattern right', section: 'character' },
-  { action: 'shiftUp', label: 'Shift the pattern up', section: 'character' },
-  { action: 'shiftDown', label: 'Shift the pattern down', section: 'character' },
+  { action: 'prevChar', label: 'Previous Character', section: 'character' },
+  { action: 'nextChar', label: 'Next Character', section: 'character' },
+  { action: 'fill', label: 'Fill', section: 'character', separatorBefore: true },
+  { action: 'clear', label: 'Clear', section: 'character' },
+  { action: 'invert', label: 'Invert', section: 'character' },
+  { action: 'flipH', label: 'Flip Horizontal', section: 'character', separatorBefore: true },
+  { action: 'flipV', label: 'Flip Vertical', section: 'character' },
+  { action: 'rotateRight', label: 'Rotate Right', section: 'character' },
+  { action: 'rotateLeft', label: 'Rotate Left', section: 'character' },
+  { action: 'shiftLeft', label: 'Shift Left', section: 'character', separatorBefore: true },
+  { action: 'shiftRight', label: 'Shift Right', section: 'character' },
+  { action: 'shiftUp', label: 'Shift Up', section: 'character' },
+  { action: 'shiftDown', label: 'Shift Down', section: 'character' },
 
-  { action: 'brushChar', label: 'Brush: character', section: 'brush' },
-  { action: 'brushColor', label: 'Brush: color', section: 'brush' },
-  { action: 'brushBoth', label: 'Brush: both', section: 'brush' },
+  { action: 'brushChar', label: 'Character', section: 'brush' },
+  { action: 'brushColor', label: 'Color', section: 'brush' },
+  { action: 'brushBoth', label: 'Both', section: 'brush' },
 
-  { action: 'slotScreen', label: 'Target the screen color', section: 'color' },
-  { action: 'slotBorder', label: 'Target the border color', section: 'color' },
-  { action: 'slotChar', label: 'Target the character color', section: 'color' },
-  { action: 'slotAux', label: 'Target the auxiliary color', section: 'color' },
+  { action: 'slotScreen', label: 'Screen', section: 'color' },
+  { action: 'slotBorder', label: 'Border', section: 'color' },
+  { action: 'slotChar', label: 'Character', section: 'color' },
+  { action: 'slotAux', label: 'Auxiliary', section: 'color' },
 
-  { action: 'prevScreen', label: 'Previous screen', section: 'view' },
-  { action: 'nextScreen', label: 'Next screen', section: 'view' },
-  { action: 'zoomIn', label: 'Zoom in', section: 'view', separatorBefore: true },
-  { action: 'zoomOut', label: 'Zoom out', section: 'view' },
-  { action: 'toggleGrid', label: 'Grid overlay', section: 'view', separatorBefore: true },
-  { action: 'toggleAspect', label: 'Aspect-corrected preview', section: 'view' },
+  { action: 'prevScreen', label: 'Previous Screen', section: 'view' },
+  { action: 'nextScreen', label: 'Next Screen', section: 'view' },
+  { action: 'zoomIn', label: 'Zoom In', section: 'view', separatorBefore: true },
+  { action: 'zoomOut', label: 'Zoom Out', section: 'view' },
+  { action: 'toggleGrid', label: 'Grid Overlay', section: 'view', separatorBefore: true },
+  { action: 'toggleAspect', label: 'Aspect-Corrected Preview', section: 'view' },
 
-  { action: 'help', label: 'Keyboard shortcuts', section: 'help' },
+  { action: 'help', label: 'Keyboard Shortcuts', section: 'help' },
 ]
 
 /**

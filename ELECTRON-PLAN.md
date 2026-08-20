@@ -269,7 +269,12 @@ menu items send those same action ids over IPC rather than inventing a parallel 
 list, so a menu item and its keyboard shortcut cannot disagree. Which items are live is
 decided the same way: the renderer runs the shortcut map's own mode predicate and sends
 main the resulting action ids together with their wording for the open mode, so main
-receives the answer and never restates the question.
+receives the answer and never restates the question. **Menu titles are not the shortcut
+descriptions**, though: the help sheet's sentences ("Save now", "Fill the character") are
+wrong in a menu, so `src/shared/menu.ts` words items as Title Case menu titles per the
+macOS HIG and `menu.spec.ts` checks the capitalisation. Only the handful of items the
+shortcut map itself marks as mode-varying may carry a second title, and the test holds
+those two lists together.
 
 ---
 
@@ -461,8 +466,16 @@ npm run preview` runs the same from built output; `npm run build:web` still pass
       wire it there.
 - [x] Confirm and set the real minimum window size (§5) — measured, now **1024×640**
 - [x] Tests: the menu→action mapping is a pure table in `src/shared/menu.ts`; `menu.spec.ts`
-      asserts it covers the action union exactly, invents nothing of its own, and takes
-      every label from the shortcut's own description
+      asserts it covers the action union exactly, invents nothing of its own, titles every
+      item in Title Case, and re-words for sprite mode only what the shortcut map says
+      varies. The Title-Case checker has its own test — it is the only thing keeping the
+      help sheet's voice out of the menu bar.
+- [x] `app.setName(productName)` before anything reads `userData`. Unpackaged,
+      `app.getName()` falls back to package.json's `name`, so the app menu read "About
+      tms9918-editor". A packaged build gets this right from `productName`; setting it
+      makes a dev run agree, and moves `userData` to the directory the packaged app will
+      use. The **menu bar's own app title still reads "Electron" in a dev run** — that one
+      comes from the bundle's `CFBundleName` and only a packaged build fixes it.
 
 **Exit criteria:** every menu item does what it says on all three platforms (or is
 correctly disabled); the window reopens where it was left; ⌘Q flushes an unsaved edit

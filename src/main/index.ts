@@ -33,6 +33,17 @@ let quitting = false
 
 // Must run before `whenReady`, or the scheme is registered too late to be
 // treated as standard/secure and the origin comes back opaque.
+/**
+ * Unpackaged, `app.getName()` falls back to package.json's `name`, so the
+ * macOS app menu offers "About vic20-editor" / "Quit vic20-editor". A
+ * packaged build takes the name from electron-builder's `productName` and
+ * reads correctly on its own; setting it here makes a dev run agree with that
+ * instead of showing a slug. It also moves `userData` to the directory the
+ * packaged app will use, which is where dev data belongs anyway — so it has to
+ * happen before anything asks for that path.
+ */
+app.setName(PRODUCT_NAME)
+
 protocol.registerSchemesAsPrivileged([
   {
     scheme: SCHEME,
