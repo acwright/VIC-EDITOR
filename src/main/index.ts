@@ -100,6 +100,9 @@ function createWindow(): void {
   mainWindow = new BrowserWindow({
     width: state.width,
     height: state.height,
+    // A first launch sizes the *viewport* the layout has to fit into; a
+    // restored window is the window bounds that were saved (§windowState).
+    useContentSize: state.useContentSize,
     // Absent on a first launch, and dropped when the display they named is no
     // longer attached — either way the window centres instead.
     ...(state.x !== undefined && state.y !== undefined ? { x: state.x, y: state.y } : {}),
@@ -142,9 +145,10 @@ function createWindow(): void {
 
   mainWindow.on('closed', () => {
     mainWindow = null
-    // macOS keeps the app running with no window. Nothing in the menu has a
-    // view to act on until one is reopened, so it all goes grey rather than
-    // staying lit over a window that is gone.
+    // The app is on its way out (see `window-all-closed`), but the menu bar
+    // outlives the window by a moment on macOS. Nothing in it has a view to
+    // act on any more, so it all goes grey rather than staying lit over a
+    // window that is gone.
     setMenuContext(EMPTY_MENU_CONTEXT)
   })
 
@@ -178,9 +182,10 @@ function rendererURL(): string {
  * Close for real.
  *
  * A quit and a window close need different endings: after ⌘Q the window's
- * `close` handler has already cancelled the quit, so closing the window alone
- * would leave a running app with no window on macOS. Re-issuing the quit is
- * what actually finishes the job.
+ * `close` handler has already cancelled the quit — `preventDefault` there
+ * cancels the whole quit, not just the close — so re-issuing it is what
+ * actually finishes the job. Closing the window alone is enough the other way
+ * round, since the last window closing quits anyway.
  */
 function finishClose(): void {
   if (readyToClose) return
@@ -226,17 +231,14 @@ app.whenReady().then(() => {
   // which it does as it mounts. The menu bar exists from launch on macOS, so
   // it is built here rather than waiting for that first report.
   buildMenu()
-
-  // macOS keeps the app alive with no windows; clicking the dock icon reopens.
-  app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) {
-      readyToClose = false
-      quitting = false
-      createWindow()
-    }
-  })
 })
 
+/**
+ * One window is the whole app, so closing it quits — on macOS too, where the
+ * platform default would instead leave a running app with an empty menu bar
+ * and nothing on screen. A single-window document-less editor has nothing to
+ * offer in that state, so there is no reason to stay in it.
+ */
 app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') app.quit()
+  app.quit()
 })

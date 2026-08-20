@@ -91,6 +91,16 @@ that differ (§5). An identical copy lives in each repo; when a decision changes
   had to exclude `node_modules` explicitly (the packaged app was 63 MB of build-time tree
   and two native `.node` binaries otherwise), the deb's dependency list needed ALSA added
   by hand, and the NSIS installer builds under Wine but cannot be *run* there.
+- **Three E5 follow-ups, fixed before E6.** The window opened too small for its own
+  layout — the character set cut off at launch, and in sprite mode a toolbar wrapping onto
+  a second row — the sprite picker had no min-height and crushed itself rather than
+  letting the column scroll, and closing the last window left the app running on macOS.
+  All three are measured and verified in the running app: a fresh window opens at
+  1600×1200 of *content* (§5), where in both editors nothing wraps, nothing scrolls and
+  both pickers are worth looking at; `SpritePicker` gained the character set picker's
+  `min-h-64` floor; and `window-all-closed` quits on every platform. The autosave flush
+  still runs on that path — an edit made a fraction of a second before the window closed
+  is on disk after a relaunch.
 - **One environment trap worth recording**, because it cost time and looks like an app
   defect: a shell inherited from the VS Code extension host has `ELECTRON_RUN_AS_NODE=1`
   set, which makes the Electron binary run as plain Node. `npm run preview` then dies with
@@ -324,18 +334,41 @@ this document is identical for both.
 | `desktopName` | `tms9918-editor.desktop` | `vic20-editor.desktop` |
 | `app://` host | `app://tms9918/` | `app://vic20/` |
 | Docker module volume | `tms9918-editor-linux-modules` | `vic20-editor-linux-modules` |
+| Left column min-height floor | sprite picker `min-h-64` | — |
 | Current version | `1.5.0` | `1.0.0` |
 | Storage key prefix (unchanged) | `tms9918-editor:` | `vic20-editor:` |
 
 Shared: author `A.C. Wright <acwrightdesign@gmail.com>`, MIT, copyright
 `© 2026 A.C. Wright`, macOS category Developer Tools, Linux category `Graphics`.
 
-Window defaults (both): **1280×860**, minimum **1024×640** — measured in Phase E3 against
-both running layouts, which agree to the pixel. 1024 is the width at which the character
-and screen columns stop sitting side by side and collapse into the tab split, the
-responsive layout the web build needs on a phone and not something a desktop window should
-be resizable into; 640 is the height at which the screen preview drops from 2× to 1×.
-Nothing overflows below either number — the layout simply stops being the desktop one.
+Minimum window size (both): **1024×640** — measured in Phase E3 against both running
+layouts, which agree to the pixel. 1024 is the width at which the character and screen
+columns stop sitting side by side and collapse into the tab split, the responsive layout
+the web build needs on a phone and not something a desktop window should be resizable
+into; 640 is the height at which the screen preview drops from 2× to 1×. Nothing overflows
+below either number — the layout simply stops being the desktop one.
+
+The **default** size is a different kind of number: **1600×1200** in both apps, and a
+*content* size rather than a window size. It is applied with `useContentSize` on a first
+launch only — what has to fit is the viewport, and the title bar wrapped around it is
+32 px on macOS and something else on Windows and Linux; a saved window is restored as
+window bounds, which is what `getNormalBounds` reports. It is clamped to the display's
+work area on launch, so a smaller screen gets the largest window it can show rather than
+one hanging off the edge.
+
+Both numbers are measured in the running app across every sample, and both are the
+requirement plus real headroom rather than the requirement itself — this is the size the
+editor is meant to be *used* at:
+
+| | wraps a toolbar below | left column clipped below | default |
+| --- | --- | --- | --- |
+| TMS9918 Editor | 1490 (Graphics II screen bar) | 1133 (sprite picker) | 1600 × 1200 |
+| VIC-20 Editor | 1500 (screen bar) | 1103 (mixed mode) | 1600 × 1200 |
+
+Sprite mode drove both TMS numbers and needed a renderer fix of its own: `SpritePicker`
+was `min-h-0`, so instead of scrolling the column it squeezed itself to ~124 px — below
+the sprite sheet's own `min-h-32` — and the bottom rows of sprites were clipped at any
+window size. It now carries the same `min-h-64` floor the character set picker has.
 
 ---
 
@@ -458,7 +491,9 @@ and reloads all working. No menus, no dialogs yet.
       - `createWindow()` per D5/D6; dev loads `process.env.ELECTRON_RENDERER_URL`,
         production loads `app://<host>/`
       - `setWindowOpenHandler` → `shell.openExternal`
-      - macOS lifecycle: `window-all-closed` (don't quit on darwin), `activate` (recreate)
+      - `window-all-closed` → `app.quit()` on every platform, macOS included: one window
+        is the whole app, and the platform default would leave a running app with an empty
+        menu bar and nothing on screen
       - `electronApp.setAppUserModelId(appId)` and `optimizer.watchWindowShortcuts`
 - [x] **Autosave-before-quit:** intercept `close`, send `APP_BEFORE_QUIT`, and have the
       renderer call the projects store's existing `flushAutosave()` then `api.saveComplete()`.

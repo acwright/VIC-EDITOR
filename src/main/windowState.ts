@@ -19,14 +19,33 @@ export interface WindowState {
   x?: number
   y?: number
   maximized: boolean
+  /**
+   * Whether `width`/`height` describe the *content* area rather than the whole
+   * window. True only on a first launch: the default is a statement about how
+   * much room the layout needs, and the title bar it has to sit under is 32 px
+   * on macOS but not on Windows or Linux. Once the user has sized the window
+   * themselves the saved numbers are window bounds, which is what
+   * `getNormalBounds` reports and what restores exactly.
+   */
+  useContentSize: boolean
 }
 
-/** Roomy enough for both editor columns plus the character set list. */
-export const DEFAULT_WINDOW_STATE: WindowState = {
-  width: 1280,
-  height: 860,
-  maximized: false,
-}
+/**
+ * The content area a fresh window opens with — the size the editor was
+ * designed to be used at, not the smallest size it survives.
+ *
+ * Both numbers are measurements taken from the running app across every
+ * sample. **1600** clears the widest toolbar with room to spare: the screen
+ * editor's toolbar wraps onto a second row below 1500 px of viewport. **1200**
+ * clears the tallest left column: a mixed project needs 1103 px of viewport
+ * before its per-character mode controls push the character set off the
+ * bottom, and the margin above that is what turns "nothing is clipped" into
+ * "the picker is worth looking at".
+ *
+ * Both are clamped to the display's work area on launch, so a smaller screen
+ * gets the largest window it can show rather than one hanging off the edge.
+ */
+export const DEFAULT_CONTENT_SIZE = { width: 1600, height: 1200 }
 
 /**
  * The floor the layout stays usable at, measured against the running app
@@ -41,24 +60,34 @@ export const DEFAULT_WINDOW_STATE: WindowState = {
  */
 export const MIN_WINDOW_SIZE = { width: 1024, height: 640 }
 
+/**
+ * Headroom kept between the default *content* size and the work area, since
+ * the frame around that content is what actually has to fit. 40 px covers the
+ * tallest of the three title bars with room to spare; it only ever bites on a
+ * display too short for the default anyway.
+ */
+const FRAME_ALLOWANCE = 40
+
 const FILE = (): string => join(app.getPath('userData'), 'window-state.json')
 
 /** Debounce: `resize` and `move` fire continuously while a drag is in flight. */
 const SAVE_DELAY = 500
 
 export function loadWindowState(): WindowState {
+  const fallback = defaultWindowState()
   let state: WindowState
   try {
     const parsed = JSON.parse(readFileSync(FILE(), 'utf-8')) as Partial<WindowState>
     state = {
-      width: numberOr(parsed.width, DEFAULT_WINDOW_STATE.width),
-      height: numberOr(parsed.height, DEFAULT_WINDOW_STATE.height),
+      width: numberOr(parsed.width, fallback.width),
+      height: numberOr(parsed.height, fallback.height),
       x: Number.isFinite(parsed.x) ? parsed.x : undefined,
       y: Number.isFinite(parsed.y) ? parsed.y : undefined,
       maximized: parsed.maximized === true,
+      useContentSize: false,
     }
   } catch {
-    return { ...DEFAULT_WINDOW_STATE }
+    return fallback
   }
 
   state.width = Math.max(state.width, MIN_WINDOW_SIZE.width)
@@ -72,6 +101,23 @@ export function loadWindowState(): WindowState {
     delete state.y
   }
   return state
+}
+
+/**
+ * A first launch: the measured content size, but never taller or wider than
+ * the display can show. A window sized past the work area is not a bigger
+ * window, it is one with its bottom edge off the screen — worse than the
+ * scrolling this default exists to avoid, and impossible to fix by dragging
+ * the edge that is now under the Dock.
+ */
+function defaultWindowState(): WindowState {
+  const { workAreaSize } = screen.getPrimaryDisplay()
+  return {
+    width: Math.min(DEFAULT_CONTENT_SIZE.width, workAreaSize.width - FRAME_ALLOWANCE),
+    height: Math.min(DEFAULT_CONTENT_SIZE.height, workAreaSize.height - FRAME_ALLOWANCE),
+    maximized: false,
+    useContentSize: true,
+  }
 }
 
 function numberOr(value: unknown, fallback: number): number {
@@ -108,6 +154,9 @@ export function trackWindowState(window: BrowserWindow): void {
   const capture = (): WindowState => ({
     ...window.getNormalBounds(),
     maximized: window.isMaximized(),
+    // What is saved is always the whole window, whatever the window was
+    // created from.
+    useContentSize: false,
   })
 
   const schedule = (): void => {
@@ -128,9 +177,12 @@ export function trackWindowState(window: BrowserWindow): void {
 }
 
 function save(state: WindowState): void {
+  // `useContentSize` describes how a window was *created*, not where it ended
+  // up, so it is not part of what a saved window is.
+  const { width, height, x, y, maximized } = state
   try {
     mkdirSync(app.getPath('userData'), { recursive: true })
-    writeFileSync(FILE(), JSON.stringify(state, null, 2), 'utf-8')
+    writeFileSync(FILE(), JSON.stringify({ width, height, x, y, maximized }, null, 2), 'utf-8')
   } catch (error) {
     // A window that cannot remember where it was is not a reason to fail.
     console.error('[windowState] save:', error)
