@@ -240,8 +240,8 @@ The same editor as a native app for macOS, Windows and Linux. Download it from t
 | --- | --- | --- |
 | macOS (Apple silicon) | `vic20-editor-<version>-mac-arm64.dmg` | Signed and notarized — opens without a Gatekeeper prompt |
 | Windows (x64) | `vic20-editor-<version>-win-x64.exe` | NSIS installer. Unsigned, so SmartScreen warns on first run — *More info → Run anyway* |
-| Linux (x64) | `vic20-editor-<version>-linux-x64.AppImage` | `chmod +x`, then run it |
-| Linux (x64) | `vic20-editor-<version>-linux-x64.deb` | `sudo apt install ./vic20-editor-<version>-linux-x64.deb` |
+| Linux (x64) | `vic20-editor-<version>-linux-x86_64.AppImage` | `chmod +x`, then run it |
+| Linux (x64) | `vic20-editor-<version>-linux-amd64.deb` | `sudo apt install ./vic20-editor-<version>-linux-amd64.deb` |
 
 Everything the web app does, the desktop app does — it is one renderer behind two
 shells, not a port. What it adds:

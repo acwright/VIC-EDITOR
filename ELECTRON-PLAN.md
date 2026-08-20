@@ -14,8 +14,18 @@ that differ (§5). An identical copy lives in each repo; when a decision changes
 
 ## Current Status
 
-- **Active phase:** E6 — CI, release, docs. Phases E1–E5 are **complete in both repos**.
-- **Last updated:** 2026-08-19
+- **Status: done and released.** Phases E1–E6 are **complete in both repos**, and
+  `v1.6.0` is tagged and published with all four artifacts in each.
+- **Last updated:** 2026-08-20
+- **TMS only: a product round is folded into this release.** PLAN.md Phase 32 (Round 9 —
+  Sprite Picker Views) is built and green on top of E5, so the `v1.6.0` tag E6 creates
+  carries both the desktop builds and the sprite picker's three layouts. Verified in the
+  packaged app over the DevTools protocol on the same terms as E2–E5: the layout choice
+  survives a full reload, `]` keeps the selection in view in the scrolling views, the list
+  tells a *blank* slot from an *invisible* one, and 256 slots of 8×8 cost 32 ms to lay out
+  as a grid. Nothing in `src/main`, the preload, the menu or the builder config changed —
+  it is renderer-only, so the E5 artifacts remain valid apart from the version string.
+  The VIC repo has no counterpart round; its `v1.6.0` is the desktop build alone.
 - The technical unknowns that would have shaped the architecture were settled by spikes
   before this plan was written; results and what they rule out are in §3. They are the
   reason §4 can commit to a custom `app://` scheme and to keeping `"type": "module"`.
@@ -75,9 +85,10 @@ that differ (§5). An identical copy lives in each repo; when a decision changes
   after the first use of each.
 - **E5 done.** Both editors package on all three platforms from one `npm run icons` and
   one `npm run dist:*`. Verified against the artifacts, not the config: the macOS dmg is
-  signed by *Developer ID Application: Infinite Token LLC*, notarized and stapled
-  (`spctl -a` says "accepted / source=Notarized Developer ID", `stapler validate` passes,
-  the code directory carries the `runtime` flag), and the copy installed from that dmg
+  signed by *Developer ID Application: Infinite Token LLC*, and wraps a notarized,
+  stapled app (`spctl -a` says "accepted / source=Notarized Developer ID",
+  `stapler validate` passes on the `.app` — **not** on the dmg, see E6 — and the code
+  directory carries the `runtime` flag), and the copy installed from that dmg
   into `/Applications` launches with no Gatekeeper prompt, shows its own icon in the Dock
   at the same size as its neighbours, and opens an About panel with the icon, name,
   version and copyright. The Windows exe carries the right ProductName, version, company
@@ -252,11 +263,12 @@ renderer's job alone.
 Keeps Vite 8, keeps the reference's tooling model, keeps one config style across all three
 repos. It is a beta with no stable successor yet, so Phase E2 opens with a half-hour spike
 that either confirms it or falls back. Fallbacks, in order of preference:
-  1. Pin both editors to Vite 7 and use `electron-vite@5` (safe; costs a Vite major, and
-     every plugin in use supports 7).
-  2. Drop electron-vite: plain Vite 8 for the renderer + a small `esbuild` step for
-     main/preload + `electron-builder`. Most control, more hand-rolled scripts, diverges
-     from the reference.
+
+1. Pin both editors to Vite 7 and use `electron-vite@5` (safe; costs a Vite major, and
+   every plugin in use supports 7).
+2. Drop electron-vite: plain Vite 8 for the renderer + a small `esbuild` step for
+   main/preload + `electron-builder`. Most control, more hand-rolled scripts, diverges
+   from the reference.
 
 **D2 — Mirror the reference's directory layout.** `src/main/`, `src/preload/`,
 `src/shared/`, `src/renderer/{index.html,public/,src/}`. The churn is mechanical (`git mv`
@@ -334,7 +346,7 @@ this document is identical for both.
 | `desktopName` | `tms9918-editor.desktop` | `vic20-editor.desktop` |
 | `app://` host | `app://tms9918/` | `app://vic20/` |
 | Docker module volume | `tms9918-editor-linux-modules` | `vic20-editor-linux-modules` |
-| Left column min-height floor | sprite picker `min-h-64` | — |
+| Left column min-height floor   | sprite picker `min-h-64`       | —                            |
 | Current version | `1.5.0` | `1.0.0` |
 | Storage key prefix (unchanged) | `tms9918-editor:` | `vic20-editor:` |
 
@@ -360,10 +372,10 @@ Both numbers are measured in the running app across every sample, and both are t
 requirement plus real headroom rather than the requirement itself — this is the size the
 editor is meant to be *used* at:
 
-| | wraps a toolbar below | left column clipped below | default |
-| --- | --- | --- | --- |
-| TMS9918 Editor | 1490 (Graphics II screen bar) | 1133 (sprite picker) | 1600 × 1200 |
-| VIC-20 Editor | 1500 (screen bar) | 1103 (mixed mode) | 1600 × 1200 |
+|                | wraps a toolbar below         | left column clipped below | default     |
+| -------------- | ----------------------------- | ------------------------- | ----------- |
+| TMS9918 Editor | 1490 (Graphics II screen bar) | 1133 (sprite picker)      | 1600 × 1200 |
+| VIC-20 Editor  | 1500 (screen bar)             | 1103 (mixed mode)         | 1600 × 1200 |
 
 Sprite mode drove both TMS numbers and needed a renderer fix of its own: `SpritePicker`
 was `min-h-0`, so instead of scrolling the column it squeezed itself to ~124 px — below
@@ -482,19 +494,13 @@ and reloads all working. No menus, no dialogs yet.
 - [x] `src/preload/index.ts`: expose `window.api` with the v1 surface —
       `app.getVersion()`, `app.platform`, `app.onBeforeQuit(cb)`, `app.saveComplete()`
 - [x] `src/preload/index.d.ts`: `declare global { interface Window { api: AppApi } }`
-- [x] `src/main/index.ts`:
-      - `protocol.registerSchemesAsPrivileged` for `app` (standard, secure,
-        supportFetchAPI) **before** `whenReady`
-      - `protocol.handle('app', …)` serving `out/renderer`, with the extensionless-path →
-        `index.html` fallback that makes deep links work (§3.2), and a guard against
-        `..` path traversal
-      - `createWindow()` per D5/D6; dev loads `process.env.ELECTRON_RENDERER_URL`,
-        production loads `app://<host>/`
-      - `setWindowOpenHandler` → `shell.openExternal`
-      - `window-all-closed` → `app.quit()` on every platform, macOS included: one window
-        is the whole app, and the platform default would leave a running app with an empty
-        menu bar and nothing on screen
-      - `electronApp.setAppUserModelId(appId)` and `optimizer.watchWindowShortcuts`
+- [x] `src/main/index.ts`: - `protocol.registerSchemesAsPrivileged` for `app` (standard, secure,
+      supportFetchAPI) **before** `whenReady` - `protocol.handle('app', …)` serving `out/renderer`, with the extensionless-path →
+      `index.html` fallback that makes deep links work (§3.2), and a guard against
+      `..` path traversal - `createWindow()` per D5/D6; dev loads `process.env.ELECTRON_RENDERER_URL`,
+      production loads `app://<host>/` - `setWindowOpenHandler` → `shell.openExternal` - `window-all-closed` → `app.quit()` on every platform, macOS included: one window
+      is the whole app, and the platform default would leave a running app with an empty
+      menu bar and nothing on screen - `electronApp.setAppUserModelId(appId)` and `optimizer.watchWindowShortcuts`
 - [x] **Autosave-before-quit:** intercept `close`, send `APP_BEFORE_QUIT`, and have the
       renderer call the projects store's existing `flushAutosave()` then `api.saveComplete()`.
       Keep the reference's 5-second safety valve so a wedged renderer cannot block a quit.
@@ -686,23 +692,80 @@ carries the same libraries the deb declares, so install those in the container f
 
 ### Phase E6 — CI, release, docs
 
-- [ ] Extend the existing workflow with an Electron build smoke check —
+- [x] Extend the existing workflow with an Electron build smoke check —
       `npx electron-vite build` with `ELECTRON_SKIP_BINARY_DOWNLOAD: '1'` so CI never pulls
-      a 100 MB binary just to prove the main process compiles
-- [ ] Confirm the Pages deploy still passes end to end after E1's path changes
-- [ ] Release process: build the three artifacts locally (Wine/Docker prerequisites), then
+      a 100 MB binary just to prove the main process compiles. The env var alone was not
+      enough — see below.
+- [x] Confirm the Pages deploy still passes end to end after E1's path changes. **It did
+      not, and had not since E1** — see below.
+- [x] Release process: build the three artifacts locally (Wine/Docker prerequisites), then
       `gh release create` with the dmg/exe/AppImage/deb attached. A cloud release workflow
       is possible but needs a macOS runner and notarization secrets — out of scope here
       (§9).
-- [ ] README: a **Desktop** section — download links, what the desktop build adds over the
+- [x] README: a **Desktop** section — download links, what the desktop build adds over the
       web app, and the from-source build instructions including the Wine/Docker
-      prerequisites
-- [ ] `CLAUDE.md` (or create one, as the reference has) noting the layout and the two build
+      prerequisites. Two existing sections were stale and went with it: `npm run dev` has
+      opened the desktop app since E2 rather than a Vite server, `npm run build` no longer
+      writes `dist/`, and VIC's Layout tree still showed a source root with no
+      `src/renderer/` in it.
+- [x] `CLAUDE.md` (or create one, as the reference has) noting the layout and the two build
       targets, so future sessions don't rediscover §3
-- [ ] Version bump + tag in both repos
+- [x] Version bump + tag in both repos — `1.6.0`. TMS's `package.json` is already there
+      (PLAN.md Phase 32 bumped it); VIC still needs the bump. The TMS release notes cover
+      the desktop builds *and* Round 9's sprite picker layouts.
 
 **Exit criteria:** CI green; a GitHub Release exists with all four artifacts; a reader of
 the README can build every target from a clean clone.
+
+**The Pages deploy had been publishing nothing since E1.** This checkbox was written
+expecting a confirmation and got a defect. The workflow runs `npm run build` and uploads
+`dist/web` — and after E2, `npm run build` is the *Electron* build, which writes `out/`.
+On a clean CI checkout `dist/web` does not exist, so the run died at
+`cp dist/web/index.html dist/web/404.html`. Both repos, both unnoticed, because nobody had
+pushed to `main` between E1 and here: E1–E5 were eight local commits, and the first push
+was the one that carried this fix. The workflows now call `build:web`, and the path is
+checked rather than assumed — the bundle hashes served live at
+`acwright.github.io/<repo>/` are the ones the local `build:web` emitted, and a deep link
+to `/edit/abc123` returns the SPA through the 404 fallback (HTTP 404 with the app in the
+body is what GitHub Pages does, and is correct).
+
+The lesson worth keeping: **a build command that changes meaning is invisible to a
+workflow that names it.** `npm run build` stayed spelled the same and started doing
+something else. Nothing in CI could have caught it, because CI *was* the thing that broke.
+
+**`ELECTRON_SKIP_BINARY_DOWNLOAD` needed code, not just YAML.** Electron 43 ships with no
+`scripts` in its own `package.json`, which is why both repos carry an explicit
+`postinstall` calling `electron/install.js` — and that file has no opt-out; it reads
+`ELECTRON_INSTALL_PLATFORM`, `electron_config_cache` and several others, but not the skip
+flag electron's own installer honoured before v43. `scripts/install-electron.mjs` wraps
+it and checks the variable, so the workflows read the way the reference's do. Checked both
+ways: set, it prints and exits 0 without touching the network; unset, it installs (and
+no-ops when the dist is already there). The only other package in either tree with an
+install script is `electron-winstaller`, a transitive dependency of electron-builder that
+selects a 7z binary and matters only to targets neither repo builds — so
+`npm ci --ignore-scripts` would also have worked, less precisely.
+
+**CI is split in two.** `deploy.yml` keeps the gates it already had and runs on `main`;
+`ci.yml` is the same gates minus the deploy, on pull requests, where there is nothing to
+publish. Neither duplicates the other on a given event. Both now end at
+`electron-vite build`: before this, nothing in CI had ever compiled `src/main` or
+`src/preload`, because the only build CI ran was the web one, which does not include them.
+
+**`${arch}` is not one value.** The `artifactName` templates in `electron-builder.yml` all
+say `${arch}`, and it expands per target: `arm64` for the dmg, `x64` for the NSIS exe,
+`x86_64` for the AppImage and `amd64` for the deb — the conventions of four different
+packaging worlds, not a mistake to normalise. The README's download table lists the names
+as they actually land, which is what a reader will be matching against.
+
+**The dmg is not itself stapled, and the plan said it was.** electron-builder notarizes
+and staples the `.app`, then wraps the stapled app in the dmg; the dmg's own hash was
+never submitted, so `xcrun stapler staple` on it fails with "Could not find base64 encoded
+ticket". Verified on both: `stapler validate` and `spctl -a -vvv -t exec` on the `.app`
+inside say *accepted / source=Notarized Developer ID*, and the code directory carries
+`flags=0x10000(runtime)`. This is the ordinary electron-builder outcome and E5's real
+exit criterion still holds — the copy installed into `/Applications` is stapled and opens
+with no prompt — but the *dmg* asks Gatekeeper for an online check the first time it is
+opened. Notarizing the dmg as a second artifact would close that and is a §9 item.
 
 ---
 
@@ -727,6 +790,10 @@ Explicitly out of scope for this plan, listed so it's clear they were considered
 - **Native project files** — File > New/Open/Save As against real `.json` files on disk, a
   recent-files menu, `.tms9918`/`.vic20` file associations and "Open With". The most
   valuable desktop-only feature, and a product round of its own (D4).
+- **Notarizing the dmg itself.** electron-builder notarizes and staples the `.app` and
+  then wraps it, so the dmg carries no ticket of its own and Gatekeeper checks it
+  online the first time it is opened. Submitting the dmg as a second artifact would
+  make the download verify offline too (E6).
 - **Auto-update** (`electron-updater` + a release feed).
 - **A cloud release workflow** — macOS runner, notarization secrets, artifact upload.
 - **macOS Intel (x64) and Apple silicon universal builds** — the reference ships arm64 only.
