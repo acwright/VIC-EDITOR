@@ -3,9 +3,22 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
+  "description": "Character set and screen editor for the Commodore VIC-20 and its MOS 6560/6561 video chip",
+  "author": {
+    "name": "A.C. Wright",
+    "email": "acwrightdesign@gmail.com"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/acwright/VIC-EDITOR.git"
+  },
+  "homepage": "https://github.com/acwright/VIC-EDITOR",
+  "license": "MIT",
   "main": "./out/main/index.js",
+  "desktopName": "vic20-editor.desktop",
   "scripts": {
     "postinstall": "node node_modules/electron/install.js",
+    "icons": "node scripts/generate-icons.mjs && node build/gen-icon.mjs",
     "dev": "electron-vite dev",
     "build": "run-p type-check \"build-only {@}\" --",
     "preview": "electron-vite preview",
@@ -19,7 +32,12 @@
     "lint": "run-s \"lint:*\"",
     "lint:oxlint": "oxlint . --fix",
     "lint:eslint": "eslint . --fix --cache",
-    "format": "prettier --write --experimental-cli src/"
+    "format": "prettier --write --experimental-cli src/",
+    "pack": "npm run build && CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --dir",
+    "dist:mac": "npm run build && electron-builder --mac",
+    "dist:win": "npm run build && bash scripts/dist-win.sh",
+    "dist:linux": "bash scripts/dist-linux.sh",
+    "dist": "npm run dist:mac && npm run dist:win && npm run dist:linux"
   },
   "dependencies": {
     "@electron-toolkit/utils": "^4.0.0",

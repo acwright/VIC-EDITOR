@@ -1,0 +1,95 @@
+appId: com.acwright.vic20editor
+productName: VIC-20 Editor
+copyright: Copyright © 2026 A.C. Wright
+
+directories:
+  buildResources: build
+  output: dist
+
+# Everything the app runs is compiled into out/ by electron-vite: main, preload
+# and the renderer the app:// handler serves. package.json comes along on its
+# own — electron-builder always includes it.
+#
+# node_modules is *not* implied by that list: electron-builder adds every
+# production dependency on top of whatever `files` says. Vue, Pinia, Tailwind
+# and the icon and font packages are compile-time inputs — Vite has already
+# inlined them into out/renderer — so shipping the tree again added 63 MB, two
+# platform-specific `.node` binaries among it (Tailwind's oxide and
+# lightningcss), which is precisely the native-dependency baggage D7 says this
+# app does not have. Excluded wholesale, then the one package the main process
+# genuinely resolves at runtime is added back: `externalizeDepsPlugin` keeps
+# @electron-toolkit/utils out of the main bundle, so it has to be on disk.
+files:
+  - out/**/*
+  - '!node_modules/**/*'
+  - node_modules/@electron-toolkit/utils/**/*
+
+# The one file the app reads from disk rather than from the bundle: the About
+# panel's iconPath (Linux and Windows) and the Linux window icon both want a
+# real path, and neither can read one out of app.asar.
+extraResources:
+  - from: build/icon.png
+    to: icon.png
+
+mac:
+  category: public.app-category.developer-tools
+  target:
+    - target: dmg
+      arch:
+        - arm64
+  hardenedRuntime: true
+  entitlements: build/entitlements.mac.plist
+  entitlementsInherit: build/entitlements.mac.inherit.plist
+  notarize: true
+
+dmg:
+  artifactName: ${name}-${version}-mac-${arch}.${ext}
+
+win:
+  target:
+    - target: nsis
+      arch:
+        - x64
+
+nsis:
+  artifactName: ${name}-${version}-win-${arch}.${ext}
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+
+linux:
+  category: Graphics
+  syncDesktopName: true
+  target:
+    - target: AppImage
+      arch:
+        - x64
+    - target: deb
+      arch:
+        - x64
+
+appImage:
+  artifactName: ${name}-${version}-linux-${arch}.${ext}
+
+deb:
+  artifactName: ${name}-${version}-linux-${arch}.${ext}
+  # electron-builder's default Depends list leaves out ALSA, but the Electron
+  # binary links libasound2 outright and will not start without it — verified
+  # in a container that had every declared dependency and still died on
+  # `libasound.so.2: cannot open shared object file`. Desktop installs carry it
+  # anyway; a minimal one does not. The alternative is Ubuntu 24.04's renamed
+  # package, which the old name is not always enough to pull in.
+  depends:
+    - libgtk-3-0
+    - libnotify4
+    - libnss3
+    - libxss1
+    - libxtst6
+    - xdg-utils
+    - libatspi2.0-0
+    - libuuid1
+    - libsecret-1-0
+    - libasound2 | libasound2t64
+
+# No native dependency in either editor (D7), so there is nothing to rebuild
+# against Electron's headers and nothing that has to live outside the asar.
+npmRebuild: false

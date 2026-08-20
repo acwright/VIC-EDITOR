@@ -13,15 +13,23 @@
  *   icon-192.png         — web manifest
  *   icon-512.png         — web manifest
  *
+ * and, into build/:
+ *
+ *   icon-master.png      — 1024×1024 source for the desktop app icon; feed it
+ *                          to `npm run icons` (build/gen-icon.mjs) to get the
+ *                          .icns/.ico/.png set electron-builder packages
+ *
  * Zero dependencies: PNGs are encoded by hand using Node's built-in zlib.
  */
 
 import { deflateSync } from 'node:zlib'
-import { writeFileSync } from 'node:fs'
+import { mkdirSync, writeFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
 
-const PUBLIC_DIR = join(dirname(fileURLToPath(import.meta.url)), '..', 'src', 'renderer', 'public')
+const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
+const PUBLIC_DIR = join(ROOT, 'src', 'renderer', 'public')
+const BUILD_DIR = join(ROOT, 'build')
 
 // 8×8 source glyph — 1 = white pixel, 0 = black (left-right symmetric).
 const GLYPH = [
@@ -37,6 +45,7 @@ const GLYPH = [
 
 const BLACK = [10, 10, 10, 255] // ink-950 (#0a0a0a) — matches the app background
 const WHITE = [245, 245, 245, 255] // ink-100
+const CLEAR = [0, 0, 0, 0]
 
 // --- PNG encoding (RGBA, 8-bit, no interlace) ---------------------------------
 
@@ -95,8 +104,76 @@ function renderRgba(size) {
   return px
 }
 
-function encodePng(size) {
-  const rgba = renderRgba(size)
+/**
+ * Render the desktop app-icon master: the same tile, inset in a transparent
+ * canvas with rounded corners.
+ *
+ * macOS draws an app icon at whatever size the file gives it and applies no
+ * mask of its own, so full-bleed art reads as oversized beside every other icon
+ * in the Dock. The platform convention is art occupying 824 of a 1024 canvas
+ * with a corner radius near a quarter of its width — that margin lives in the
+ * master, and Windows and Linux inherit it.
+ */
+function renderMasterRgba(size) {
+  const px = Buffer.alloc(size * size * 4) // zero-filled: fully transparent
+  const set = (x, y, [r, g, b, a]) => {
+    const i = (y * size + x) * 4
+    px[i] = r
+    px[i + 1] = g
+    px[i + 2] = b
+    px[i + 3] = a
+  }
+
+  const inset = Math.round((size * 100) / 1024)
+  const tile = size - inset * 2
+  const radius = tile * 0.225
+
+  // Corner coverage by 4×4 supersampling — the only antialiasing in here, and
+  // the only place it is needed: everything else lands on a pixel boundary.
+  const covered = (x, y) => {
+    let hits = 0
+    for (let sy = 0; sy < 4; sy++) {
+      for (let sx = 0; sx < 4; sx++) {
+        const px0 = x + (sx + 0.5) / 4 - inset
+        const py0 = y + (sy + 0.5) / 4 - inset
+        if (px0 < 0 || px0 > tile || py0 < 0 || py0 > tile) continue
+        const cx = Math.min(Math.max(px0, radius), tile - radius)
+        const cy = Math.min(Math.max(py0, radius), tile - radius)
+        const dx = px0 - cx
+        const dy = py0 - cy
+        if (dx * dx + dy * dy <= radius * radius) hits++
+      }
+    }
+    return hits / 16
+  }
+
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
+      const a = covered(x, y)
+      set(x, y, a === 0 ? CLEAR : [BLACK[0], BLACK[1], BLACK[2], Math.round(a * 255)])
+    }
+  }
+
+  // The glyph keeps favicon.svg's proportions within the tile: 96/512 padding
+  // on each side, so the 8×8 grid fills 0.625 of it.
+  const cell = Math.max(1, Math.floor((tile * 0.625) / 8))
+  const grid = cell * 8
+  const off = Math.round((size - grid) / 2)
+  for (let gy = 0; gy < 8; gy++) {
+    for (let gx = 0; gx < 8; gx++) {
+      if (!GLYPH[gy][gx]) continue
+      for (let dy = 0; dy < cell; dy++) {
+        for (let dx = 0; dx < cell; dx++) {
+          set(off + gx * cell + dx, off + gy * cell + dy, WHITE)
+        }
+      }
+    }
+  }
+  return px
+}
+
+function encodePng(size, render = renderRgba) {
+  const rgba = render(size)
   const stride = size * 4
   const raw = Buffer.alloc((stride + 1) * size)
   for (let y = 0; y < size; y++) {
@@ -158,13 +235,18 @@ function buildSvg() {
 `
 }
 
-const out = (name, data) => {
-  writeFileSync(join(PUBLIC_DIR, name), data)
+const writeTo = (dir, name, data) => {
+  writeFileSync(join(dir, name), data)
   console.log('wrote', name)
 }
+const out = (name, data) => writeTo(PUBLIC_DIR, name, data)
+const outBuild = (name, data) => writeTo(BUILD_DIR, name, data)
 
 out('favicon.svg', buildSvg())
 out('favicon.ico', encodeIco(32))
 out('apple-touch-icon.png', encodePng(180))
 out('icon-192.png', encodePng(192))
 out('icon-512.png', encodePng(512))
+
+mkdirSync(BUILD_DIR, { recursive: true })
+outBuild('icon-master.png', encodePng(1024, renderMasterRgba))

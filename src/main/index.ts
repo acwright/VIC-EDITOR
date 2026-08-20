@@ -1,4 +1,5 @@
 import { app, shell, BrowserWindow, ipcMain, protocol, net } from 'electron'
+import { existsSync } from 'node:fs'
 import { dirname, extname, isAbsolute, join, relative } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
@@ -24,6 +25,24 @@ const SCHEME = 'app'
 const HOST = 'vic20'
 
 const RENDERER_DIR = join(dirname(fileURLToPath(import.meta.url)), '../renderer')
+
+/**
+ * The app icon as a path on disk.
+ *
+ * macOS reads the icon from the bundle and needs none of this, but Linux wants
+ * one for the window and both Linux and Windows want one for the About panel —
+ * and all three of those take a *path*, read by native code that cannot see
+ * inside `app.asar`. So `build/icon.png` ships as an extra resource rather than
+ * as part of the bundle, and this resolves to it either side of packaging.
+ * Returns `undefined` if it is missing, since a working icon is not worth a
+ * failed launch (a checkout that has never run `npm run icons` has no `build/`).
+ */
+function appIconPath(): string | undefined {
+  const path = app.isPackaged
+    ? join(process.resourcesPath, 'icon.png')
+    : join(app.getAppPath(), 'build', 'icon.png')
+  return existsSync(path) ? path : undefined
+}
 
 let mainWindow: BrowserWindow | null = null
 
@@ -88,6 +107,9 @@ function createWindow(): void {
     minHeight: MIN_WINDOW_SIZE.height,
     center: state.x === undefined,
     title: PRODUCT_NAME,
+    // Only Linux needs this: macOS and Windows take the window and taskbar
+    // icon from the packaged bundle.
+    ...(process.platform === 'linux' ? { icon: appIconPath() } : {}),
     backgroundColor: '#0a0a0a',
     // Shown on `ready-to-show` so the first paint is the app, not a white flash.
     show: false,
@@ -176,10 +198,13 @@ app.whenReady().then(() => {
 
   // macOS reads this for the About panel under the app menu; Windows and Linux
   // for the panel `app.showAboutPanel()` opens from Help.
+  const iconPath = appIconPath()
   app.setAboutPanelOptions({
     applicationName: PRODUCT_NAME,
     applicationVersion: app.getVersion(),
     copyright: '\u00a9 2026 A.C. Wright',
+    // Ignored on macOS, which uses the bundle icon.
+    ...(iconPath ? { iconPath } : {}),
   })
 
   // F12 opens DevTools in development and does nothing in a packaged build;
