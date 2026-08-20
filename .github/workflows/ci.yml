@@ -1,0 +1,53 @@
+# The gates, without the deploy.
+#
+# Pushes to `main` go through deploy.yml, which runs the same checks before it
+# publishes; this workflow is what gates a pull request, where there is nothing
+# to deploy. Both end at `electron-vite build`: the Pages build only ever
+# compiles the renderer, so without this step the main and preload processes —
+# half of what this repo now ships — would never be built by CI at all.
+name: CI
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+
+      - run: npm ci
+        name: Install
+        env:
+          # The Electron binary is 100 MB and is only needed to *run* the app.
+          # Linting, typechecking, tests and both builds work without it.
+          ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
+
+      # Lint without --fix: CI reports, it does not rewrite.
+      - run: npx oxlint .
+      - run: npx eslint .
+
+      - run: npm run type-check
+        name: Typecheck
+
+      - run: npm run test:unit -- --run
+        name: Test
+
+      # Smoke check for the desktop build: main, preload and renderer all
+      # bundle. It does not package, sign or launch anything — E5's artifacts
+      # are built locally (see the README's Desktop section).
+      - run: npx electron-vite build
+        name: Build (Electron)
+
+      - run: npm run build-only:web
+        name: Build (web)

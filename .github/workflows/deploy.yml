@@ -1,8 +1,15 @@
-# Build the editor and publish it to GitHub Pages.
+# Gate, build and publish the editor to GitHub Pages.
 #
 # Pages serves the site from /VIC-EDITOR/, so the build needs a matching base
-# path; `vite.config.ts` reads it from VITE_BASE and falls back to `/` for
+# path; `vite.web.config.ts` reads it from VITE_BASE and falls back to `/` for
 # local builds.
+#
+# This is the workflow that runs on `main`; ci.yml runs the same gates on a
+# pull request, where there is nothing to deploy. The desktop artifacts are
+# *not* built here — a signed, notarized dmg needs a macOS runner and Apple
+# credentials (ELECTRON-PLAN §9). What runs here is the bundle-only smoke
+# check, so a change that breaks the main or preload process fails on `main`
+# rather than at the next release.
 name: Deploy
 
 on:
@@ -32,6 +39,11 @@ jobs:
           cache: npm
 
       - run: npm ci
+        name: Install
+        env:
+          # The Electron binary is 100 MB and is only needed to *run* the app.
+          # Neither build below launches it.
+          ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
 
       # Lint without --fix: CI reports, it does not rewrite.
       - run: npx oxlint .
@@ -39,7 +51,14 @@ jobs:
 
       - run: npm run test:unit -- --run
 
-      - run: npm run build
+      # Smoke check for the desktop build: main, preload and renderer all
+      # bundle. Nothing downstream uses out/ — the deploy ships dist/web.
+      - run: npx electron-vite build
+        name: Build (Electron)
+
+      # `npm run build` is the *Electron* build. Pages wants the standalone
+      # renderer, which is a separate config and a separate output directory.
+      - run: npm run build:web
         env:
           VITE_BASE: /${{ github.event.repository.name }}/
 

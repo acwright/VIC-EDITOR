@@ -5,7 +5,8 @@ A browser-based character set and screen editor for the [Commodore VIC-20](https
 and its MOS 6560/6561 ("VIC-I") video chip. Draw a character set, paint screens
 with it, and export code that assembles, loads or runs on the machine.
 
-**[Open the editor →](https://acwright.github.io/VIC-EDITOR/)**
+**[Open the editor →](https://acwright.github.io/VIC-EDITOR/)** — or run it as a
+native app for macOS, Windows and Linux, see **[Desktop](#desktop)**.
 
 ![The editor, with a multicolor sample project open](docs/screenshot.png)
 
@@ -230,6 +231,73 @@ back, or copy a share link — which packs the whole project into the link's `#v
 hash, so no server ever sees it and anyone who opens it gets an editable copy of
 their own. Undo history is per session and travels with neither.
 
+## Desktop
+
+The same editor as a native app for macOS, Windows and Linux. Download it from the
+[latest release](https://github.com/acwright/VIC-EDITOR/releases/latest):
+
+| Platform | File | Notes |
+| --- | --- | --- |
+| macOS (Apple silicon) | `vic20-editor-<version>-mac-arm64.dmg` | Signed and notarized — opens without a Gatekeeper prompt |
+| Windows (x64) | `vic20-editor-<version>-win-x64.exe` | NSIS installer. Unsigned, so SmartScreen warns on first run — *More info → Run anyway* |
+| Linux (x64) | `vic20-editor-<version>-linux-x64.AppImage` | `chmod +x`, then run it |
+| Linux (x64) | `vic20-editor-<version>-linux-x64.deb` | `sudo apt install ./vic20-editor-<version>-linux-x64.deb` |
+
+Everything the web app does, the desktop app does — it is one renderer behind two
+shells, not a port. What it adds:
+
+- **A real menu bar**, with the keyboard map as accelerators. Menu items follow
+  the open project: a hires project greys out the multicolor-only items, and the
+  project list greys everything but *New project*.
+- **Native save and open dialogs.** Every export — assembly, BASIC, binary, PNG,
+  project JSON — goes through the system save sheet, so you choose the folder and
+  the filename instead of fishing the file out of `~/Downloads`. Each kind of
+  export remembers the directory you last used. Importing a project opens a real
+  file panel.
+- **Its own storage.** Projects live in the app's own `userData` directory rather
+  than in a browser profile, so clearing browsing data cannot touch them, and they
+  are flushed to disk on the way out — an edit made a moment before you quit is
+  there on relaunch.
+- **A window that remembers itself**, including which display it was on and
+  whether it was maximized.
+- **No network at all.** The web app is already client-side; the desktop app has
+  no browser, no address bar and no tab.
+
+The desktop app's projects are **separate** from the web app's — different storage,
+no sync. Move one across with *Download* and *Upload* in the project list, or a
+share link.
+
+### Building the desktop app from source
+
+`npm run build` is the Electron build (it bundles main, preload and renderer to
+`out/`); `npm run build:web` is the one that produces the Pages site. Packaging
+each platform is a separate command, and each has a prerequisite:
+
+```sh
+npm run icons        # regenerate build/icon.{icns,ico,png} from the master PNG
+npm run pack         # unpacked app in dist/mac-arm64 — no signing, quickest check
+npm run dist:mac     # → dist/*.dmg      requires a Developer ID cert + notarization credentials
+npm run dist:win     # → dist/*.exe      requires Wine (brew install --cask wine-stable)
+npm run dist:linux   # → dist/*.AppImage, *.deb   requires Docker running
+npm run dist         # all three, in that order
+```
+
+- **macOS** signs, notarizes and staples. It needs a *Developer ID Application*
+  certificate in the keychain and `APPLE_ID`, `APPLE_APP_SPECIFIC_PASSWORD` and
+  `APPLE_TEAM_ID` in the environment. Without them, use `npm run pack` — it skips
+  signing entirely.
+- **Windows** builds the NSIS installer under Wine. The installer *runs* only on
+  real Windows: its script calls PowerShell's `Get-CimInstance`, which Wine stubs
+  out.
+- **Linux** builds in a container, so nothing has to be installed on the host but
+  Docker.
+
+If `npm run dev` or `npm run preview` dies with *"The requested module 'electron'
+does not provide an export named 'BrowserWindow'"*, the shell has
+`ELECTRON_RUN_AS_NODE=1` set — some editors' integrated terminals do — which makes
+the Electron binary run as plain Node. Run it as
+`env -u ELECTRON_RUN_AS_NODE npm run dev`.
+
 ## Getting started
 
 ```sh
@@ -237,32 +305,55 @@ npm install
 npm run dev
 ```
 
-| Script                            | Does                                 |
-| --------------------------------- | ------------------------------------ |
-| `npm run dev`                     | Vite dev server                      |
-| `npm run build`                   | Type-check and build to `dist/`      |
-| `npm run test:unit`               | Vitest                               |
-| `npm run type-check`              | `vue-tsc`                            |
-| `npm run lint`                    | oxlint + ESLint                      |
-| `npm run format`                  | Prettier over `src/`                 |
-| `node scripts/generate-icons.mjs` | Regenerate the icon set in `public/` |
+| Script                            | Does                                   |
+| --------------------------------- | -------------------------------------- |
+| `npm run dev`                     | The desktop app, with hot reload       |
+| `npm run dev:web`                 | Vite dev server (the browser app)      |
+| `npm run build`                   | The Electron bundle → `out/`           |
+| `npm run build:web`               | The standalone web app → `dist/web/`   |
+| `npm run test:unit`               | Vitest                                 |
+| `npm run type-check`              | `vue-tsc`                              |
+| `npm run lint`                    | oxlint + ESLint                        |
+| `npm run format`                  | Prettier over `src/`                   |
+| `node scripts/generate-icons.mjs` | Regenerate the icon set in `public/`   |
 
 Vue 3 + TypeScript + Pinia + Vue Router + Tailwind, built with Vite and tested
-with Vitest. Pushing to `main` builds and deploys to GitHub Pages; the workflow
-passes `VITE_BASE` so the bundle resolves under `/VIC-EDITOR/`.
+with Vitest, wrapped in Electron for the desktop builds.
+
+Pushing to `main` runs [deploy.yml](.github/workflows/deploy.yml), which lints,
+tests, builds and deploys to GitHub Pages; it passes `VITE_BASE` so the bundle
+resolves under `/VIC-EDITOR/`. [ci.yml](.github/workflows/ci.yml) runs the same
+gates on a pull request. Both also run `electron-vite build`, so a change that
+breaks the main or preload process fails in CI rather than at the next release —
+but neither *packages* the desktop app, since a signed, notarized dmg needs a
+macOS runner and Apple credentials. Those artifacts are built locally, with the
+commands under [Desktop](#building-the-desktop-app-from-source).
+
+See [CLAUDE.md](CLAUDE.md) for the source layout and the decisions behind it, and
+[ELECTRON-PLAN.md](ELECTRON-PLAN.md) for the measurements they rest on.
 
 ## Layout
 
 ```
-src/domain/       pure logic — no Vue (types, charOps, screenOps, export, serialization)
-src/persistence/  localStorage repository and preferences
-src/stores/       Pinia stores (projects, editor + undo history)
-src/components/   base/ + editor/ + projects/ components
-src/samples/      the four bundled sample projects
-src/views/        project manager and editor views
+src/renderer/     the editor — the whole web app, and all the desktop app draws
+  src/domain/       pure logic — no Vue (types, charOps, screenOps, export, serialization)
+  src/persistence/  localStorage repository and preferences
+  src/stores/       Pinia stores (projects, editor + undo history)
+  src/components/   base/ + editor/ + projects/ components
+  src/samples/      the four bundled sample projects
+  src/views/        project manager and editor views
+  src/utils/        including the desktop/browser forks (download, upload, platform)
+src/main/         the Electron main process — window, menu, native dialogs
+src/preload/      the contextBridge API, and nothing else crosses
+src/shared/       the types and channel names main and renderer agree on
 rom/              VIC-20 character ROM dump, build-time input only
-scripts/          charset and icon generators
+scripts/          charset and icon generators, the Electron binary installer
+build/            icons, entitlements, and the icon generator that feeds them
 ```
+
+The renderer imports nothing from `src/main/`, and reaches the desktop only
+through `window.api` — so the same tree builds for the browser, where that object
+is simply absent.
 
 ## Keyboard
 

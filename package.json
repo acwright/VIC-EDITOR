@@ -1,6 +1,6 @@
 {
   "name": "vic20-editor",
-  "version": "1.0.0",
+  "version": "1.6.0",
   "private": true,
   "type": "module",
   "description": "Character set and screen editor for the Commodore VIC-20 and its MOS 6560/6561 video chip",
@@ -17,7 +17,7 @@
   "main": "./out/main/index.js",
   "desktopName": "vic20-editor.desktop",
   "scripts": {
-    "postinstall": "node node_modules/electron/install.js",
+    "postinstall": "node scripts/install-electron.mjs",
     "icons": "node scripts/generate-icons.mjs && node build/gen-icon.mjs",
     "dev": "electron-vite dev",
     "build": "run-p type-check \"build-only {@}\" --",
