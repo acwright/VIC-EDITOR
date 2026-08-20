@@ -4,6 +4,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import { IPC } from '../shared/ipc'
 import { EMPTY_MENU_CONTEXT, type MenuContext } from '../shared/menu'
+import { registerDialogHandlers } from './dialogs'
 import { buildMenu, setMenuContext } from './menu'
 import { MIN_WINDOW_SIZE, loadWindowState, trackWindowState } from './windowState'
 
@@ -95,8 +96,8 @@ function createWindow(): void {
       contextIsolation: true,
       nodeIntegration: false,
       // An ESM preload cannot run in a sandboxed renderer. The bridge exposes
-      // four functions and no `ipcRenderer` passthrough, so the surface this
-      // gives up is small and explicitly enumerated (D5).
+      // a handful of named functions and no `ipcRenderer` passthrough, so the
+      // surface this gives up is small and explicitly enumerated (D5).
       sandbox: false,
     },
   })
@@ -192,6 +193,7 @@ app.whenReady().then(() => {
   ipcMain.handle(IPC.APP_GET_VERSION, () => app.getVersion())
   ipcMain.on(IPC.APP_SAVE_COMPLETE, () => finishClose())
   ipcMain.on(IPC.MENU_SET_CONTEXT, (_event, context: MenuContext) => setMenuContext(context))
+  registerDialogHandlers()
 
   createWindow()
 

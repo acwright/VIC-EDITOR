@@ -10,6 +10,10 @@ const stubApi = {
     onBeforeQuit: () => () => {},
     saveComplete: () => {},
   },
+  files: {
+    save: () => Promise.resolve(null),
+    openText: () => Promise.resolve(null),
+  },
   menu: {
     setContext: () => {},
     onAction: () => () => {},

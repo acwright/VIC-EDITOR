@@ -16,6 +16,16 @@ export const IPC = {
   MENU_SET_CONTEXT: 'menu:set-context',
   /** Main → renderer: a menu item was chosen; here is its action id. */
   MENU_ACTION: 'menu:action',
+  /**
+   * Renderer → main: run a save dialog and write the bytes. Replies with the
+   * path written, or `null` if the user cancelled.
+   */
+  FILE_SAVE: 'file:save',
+  /**
+   * Renderer → main: run an open dialog and read the file as UTF-8. Replies
+   * with the file, or `null` if the user cancelled.
+   */
+  FILE_OPEN_TEXT: 'file:open-text',
 } as const
 
 export type IpcChannel = (typeof IPC)[keyof typeof IPC]

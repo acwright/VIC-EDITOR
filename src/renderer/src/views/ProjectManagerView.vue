@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onBeforeUnmount, onMounted, ref, useTemplateRef } from 'vue'
+import { onBeforeUnmount, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import {
   Copy,
@@ -26,8 +26,10 @@ import { ShareLinkError, decodeShare, takePendingShare } from '@/domain/share'
 import type { ProjectSummary } from '@/persistence/repository'
 import { SAMPLES, type Sample } from '@/samples'
 import { useProjectsStore } from '@/stores/projects'
+import { downloadText } from '@/utils/download'
 import { managerMenuContext, onMenuAction, reportMenuContext } from '@/utils/menu'
 import { matchManagerShortcut, shortcutLabel, type ManagerAction } from '@/utils/shortcuts'
+import { pickProjectFile } from '@/utils/upload'
 
 const store = useProjectsStore()
 const router = useRouter()
@@ -123,25 +125,17 @@ function confirmDelete() {
 }
 
 // --- Download / upload ---
+// Both go through the shared utilities, so each one is a browser download here
+// and a native dialog in the desktop app without this view knowing which.
 function download(id: string) {
   const payload = store.exportProject(id)
   if (!payload) return
-  const url = URL.createObjectURL(new Blob([payload.json], { type: 'application/json' }))
-  const anchor = document.createElement('a')
-  anchor.href = url
-  anchor.download = payload.filename
-  anchor.click()
-  URL.revokeObjectURL(url)
+  downloadText(payload.filename, payload.json, 'application/json')
 }
 
-const fileInput = useTemplateRef('fileInput')
-
-async function onUpload(event: Event) {
-  const input = event.target as HTMLInputElement
-  const file = input.files?.[0]
-  input.value = '' // allow re-uploading the same file
-  if (!file) return
-  store.importProject(await file.text())
+async function upload() {
+  const json = await pickProjectFile()
+  if (json !== null) store.importProject(json)
 }
 
 // --- Share ---
@@ -219,7 +213,7 @@ function formatDate(iso: string): string {
         >
           <Keyboard class="size-4" />
         </AppButton>
-        <AppButton label="Upload Project" @click="fileInput?.click()">
+        <AppButton label="Upload Project" @click="upload()">
           <Upload class="size-4" />
         </AppButton>
         <AppButton
@@ -232,14 +226,6 @@ function formatDate(iso: string): string {
         </AppButton>
       </div>
     </header>
-
-    <input
-      ref="fileInput"
-      type="file"
-      accept=".json,application/json"
-      class="hidden"
-      @change="onUpload"
-    />
 
     <div
       v-if="store.lastError"

@@ -14,8 +14,7 @@ that differ (§5). An identical copy lives in each repo; when a decision changes
 
 ## Current Status
 
-- **Active phase:** E4 — native file dialogs. Phases E1, E2 and E3 are **complete in both
-  repos**.
+- **Active phase:** E5 — icons and packaging. Phases E1–E4 are **complete in both repos**.
 - **Last updated:** 2026-08-19
 - The technical unknowns that would have shaped the architecture were settled by spikes
   before this plan was written; results and what they rule out are in §3. They are the
@@ -65,6 +64,21 @@ that differ (§5). An identical copy lives in each repo; when a decision changes
 - **E3 opened on an assumption that turned out to be wrong**, and §3.5 records the
   measurement that replaced it: a menu accelerator does *not* take the key away from the
   renderer. **D11** covers what that costs and what it buys.
+- **E4 done.** Every export in both apps writes through a native save sheet on the desktop
+  and still downloads in the browser, and a project imports through a native open panel.
+  Verified in the running app by driving the real sheets with real keystrokes, not by
+  inspection: a save returns the path it wrote and the bytes on disk match exactly
+  (`deadbeef`), a sprite-sheet PNG lands as a real 512×512 PNG and a VIC screen as a
+  704×736 one, a project exports as `sample-…json` and imports back as a second row in the
+  list, and Escape on either sheet writes nothing, raises no error banner and leaves the
+  export dialog open. `dialog-state.json` in `userData` shows both directories remembered
+  after the first use of each.
+- **One environment trap worth recording**, because it cost time and looks like an app
+  defect: a shell inherited from the VS Code extension host has `ELECTRON_RUN_AS_NODE=1`
+  set, which makes the Electron binary run as plain Node. `npm run preview` then dies with
+  `The requested module 'electron' does not provide an export named 'BrowserWindow'` — the
+  builtin module is never installed, so every ESM import of `electron` resolves to the npm
+  shim. Nothing is wrong with the app; run it with `env -u ELECTRON_RUN_AS_NODE`.
 
 ---
 
@@ -344,7 +358,8 @@ After Phase E1 + E2, each repo looks like this. Files marked **new** did not exi
         ├── index.html                    moved from ./index.html
         ├── public/                       moved from ./public/
         └── src/                          moved from ./src/  (everything, unchanged)
-            └── utils/menu.ts       new   what the menu offers, read off the shortcut map
+            ├── utils/menu.ts       new   what the menu offers, read off the shortcut map
+            └── utils/upload.ts     new   pick a project file (Phase E4)
 ```
 
 `out/` (electron-vite output) and `dist/` (both the web build and electron-builder's
@@ -491,23 +506,47 @@ part to re-check there.
 **Goal:** exports and imports use real save/open dialogs instead of the browser's download
 folder and hidden file input. **Same call sites** — the branch lives in the utilities.
 
-- [ ] `src/main/dialogs.ts` + IPC: `dialog.showSaveDialog` (writes bytes/text) and
+- [x] `src/main/dialogs.ts` + IPC: `dialog.showSaveDialog` (writes bytes/text) and
       `dialog.showOpenDialog` (reads a file back), both returning `null` on cancel
-- [ ] `src/renderer/src/utils/download.ts`: keep `downloadText` / `downloadBytes` /
+- [x] `src/renderer/src/utils/download.ts`: keep `downloadText` / `downloadBytes` /
       `downloadCanvasPng` signatures identical; add a `window.api`-present branch that
       opens a save dialog with a sensible default filename and the right filter
       (`.asm`, `.bas`, `.bin`, `.png`, `.json`). Callers change not at all.
-- [ ] Extract the project-import path from `ProjectManagerView.vue`'s hidden
+- [x] Extract the project-import path from `ProjectManagerView.vue`'s hidden
       `<input type="file">` into a `pickProjectFile()` utility with the same two branches;
-      the view calls the utility
-- [ ] Remember the last-used export directory in the window-state/settings JSON so the
-      second export starts where the first one landed
-- [ ] Unit tests for both branches with a stubbed `window.api` — the web path must keep its
+      the view calls the utility — it lives in a new `src/renderer/src/utils/upload.ts`,
+      the mirror of `download.ts`, rather than inside the download module
+- [x] Remember the last-used export directory in the window-state/settings JSON so the
+      second export starts where the first one landed — its own
+      `<userData>/dialog-state.json`, on `windowState.ts`'s model, since window geometry
+      and dialog history are read at different moments and neither wants the other's
+      failure mode. Open remembers separately from save.
+- [x] Unit tests for both branches with a stubbed `window.api` — the web path must keep its
       existing coverage
 
 **Exit criteria:** every export in both apps writes through a native dialog on desktop and
 still downloads in the browser; importing a project works from both; cancelling a dialog is
-a no-op with no error toast.
+a no-op with no error toast. **All met** — see Current Status.
+
+Three things the phase list did not anticipate, all now settled:
+
+- **The renderer sends bytes, never a path.** One `SaveFileRequest` (`{ filename, data }`)
+  carries text, binary and PNG alike — text is `TextEncoder`-encoded at the call site — so
+  there is one channel and one main-side write rather than a text and a binary variant.
+  The filter row is read off the filename's extension, which keeps the format list in the
+  renderer where it already lives.
+- **A failed write is reported by main, not returned to the renderer.** `save` resolves to
+  `null` for both a cancel and a failure, and main puts up a native error box in the
+  failure case. The renderer has one thing to check, and the side that knows *why* the
+  write failed is the side that says so.
+- **`ProjectManagerView`'s own inline blob download went too.** It predated
+  `download.ts` and duplicated it; it now calls `downloadText`, so the project export is a
+  native sheet on the desktop for free.
+
+**Deliberately not done here:** the "Download" and "Upload Project" button labels still say
+the web words in the native app. Changing them means a branch in a view, which is exactly
+what this phase exists to avoid — so the wording is a §9 item, to be settled together with
+the native project files D4 defers.
 
 ### Phase E5 — Icons and packaging
 

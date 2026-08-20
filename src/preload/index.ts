@@ -1,6 +1,6 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import { IPC } from '../shared/ipc'
-import type { AppApi } from '../shared/api'
+import type { AppApi, OpenFileRequest, OpenedTextFile, SaveFileRequest } from '../shared/api'
 import type { MenuContext } from '../shared/menu'
 
 const api: AppApi = {
@@ -15,6 +15,12 @@ const api: AppApi = {
     saveComplete: (): void => {
       ipcRenderer.send(IPC.APP_SAVE_COMPLETE)
     },
+  },
+  files: {
+    save: (request: SaveFileRequest): Promise<string | null> =>
+      ipcRenderer.invoke(IPC.FILE_SAVE, request),
+    openText: (request: OpenFileRequest): Promise<OpenedTextFile | null> =>
+      ipcRenderer.invoke(IPC.FILE_OPEN_TEXT, request),
   },
   menu: {
     setContext: (context: MenuContext): void => {

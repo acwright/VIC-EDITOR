@@ -16,6 +16,29 @@ import type { MenuContext } from './menu'
 /** The platforms we ship for. Anything else falls through as a bare string. */
 export type Platform = 'darwin' | 'win32' | 'linux' | (string & NonNullable<unknown>)
 
+/** What a save dialog is given: the bytes to write and the name to suggest. */
+export interface SaveFileRequest {
+  /**
+   * The suggested filename, extension included. The extension also picks the
+   * dialog's filter row, so it is not decoration.
+   */
+  filename: string
+  /** Exactly what lands on disk — text is UTF-8 encoded by the caller. */
+  data: Uint8Array
+}
+
+/** What an open dialog offers. */
+export interface OpenFileRequest {
+  /** Extensions without the dot, e.g. `['json']`. */
+  extensions: string[]
+}
+
+/** A file the user chose, read as UTF-8. */
+export interface OpenedTextFile {
+  path: string
+  text: string
+}
+
 export interface AppApi {
   app: {
     /** The packaged app's version — `app.getVersion()`, not `__APP_VERSION__`. */
@@ -29,6 +52,20 @@ export interface AppApi {
     onBeforeQuit(callback: () => void): () => void
     /** Tell main the flush is done and it may close for real. */
     saveComplete(): void
+  }
+  files: {
+    /**
+     * Run a save dialog, then write. Resolves to the path written, or `null`
+     * if the user cancelled — cancelling is a no-op, not an error. A write
+     * that fails is reported by main in a native error box and also resolves
+     * to `null`, so the renderer has one thing to check either way.
+     */
+    save(request: SaveFileRequest): Promise<string | null>
+    /**
+     * Run an open dialog, then read the chosen file as UTF-8. Resolves to
+     * `null` if the user cancelled.
+     */
+    openText(request: OpenFileRequest): Promise<OpenedTextFile | null>
   }
   menu: {
     /**
