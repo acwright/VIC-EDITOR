@@ -1,0 +1,17 @@
+// The Electron main and preload processes, plus the types they share with the
+// renderer. Node + Electron globals, no DOM.
+{
+  "extends": "@electron-toolkit/tsconfig/tsconfig.node.json",
+  "include": ["src/main/**/*", "src/preload/**/*", "src/shared/**/*"],
+  "compilerOptions": {
+    "composite": true,
+    "noEmit": true,
+
+    // Same lookup safety the renderer runs with.
+    "noUncheckedIndexedAccess": true,
+
+    // `vue-tsc --build` produces a .tsbuildinfo file for incremental type-checking.
+    // Specified here to keep it out of the root directory.
+    "tsBuildInfoFile": "./node_modules/.tmp/tsconfig.electron.tsbuildinfo"
+  }
+}

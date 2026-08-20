@@ -3,12 +3,18 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
+  "main": "./out/main/index.js",
   "scripts": {
-    "dev": "vite --config vite.web.config.ts",
+    "postinstall": "node node_modules/electron/install.js",
+    "dev": "electron-vite dev",
     "build": "run-p type-check \"build-only {@}\" --",
-    "preview": "vite preview --config vite.web.config.ts",
+    "preview": "electron-vite preview",
+    "dev:web": "vite --config vite.web.config.ts",
+    "build:web": "run-p type-check \"build-only:web {@}\" --",
+    "preview:web": "vite preview --config vite.web.config.ts",
     "test:unit": "vitest",
-    "build-only": "vite build --config vite.web.config.ts",
+    "build-only": "electron-vite build",
+    "build-only:web": "vite build --config vite.web.config.ts",
     "type-check": "vue-tsc --build",
     "lint": "run-s \"lint:*\"",
     "lint:oxlint": "oxlint . --fix",
@@ -16,6 +22,7 @@
     "format": "prettier --write --experimental-cli src/"
   },
   "dependencies": {
+    "@electron-toolkit/utils": "^4.0.0",
     "@fontsource/bebas-neue": "^5.3.0",
     "@tailwindcss/vite": "^4.3.3",
     "lucide-vue-next": "^1.0.0",
@@ -25,6 +32,7 @@
     "vue-router": "^5.2.0"
   },
   "devDependencies": {
+    "@electron-toolkit/tsconfig": "^2.0.0",
     "@tsconfig/node24": "^24.0.4",
     "@types/jsdom": "^28.0.3",
     "@types/node": "^24.13.3",
@@ -33,6 +41,9 @@
     "@vue/eslint-config-typescript": "^14.9.0",
     "@vue/test-utils": "^2.4.11",
     "@vue/tsconfig": "^0.9.1",
+    "electron": "^43.4.1",
+    "electron-builder": "^26.15.3",
+    "electron-vite": "6.0.0-beta.1",
     "eslint": "^10.7.0",
     "eslint-config-prettier": "^10.1.8",
     "eslint-plugin-oxlint": "~1.73.0",

@@ -215,6 +215,7 @@ export const useProjectsStore = defineStore('projects', () => {
     exportProject,
     markDirty,
     saveCurrent,
+    flushAutosave,
     dismissError,
   }
 })

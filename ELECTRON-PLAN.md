@@ -14,7 +14,7 @@ that differ (§5). An identical copy lives in each repo; when a decision changes
 
 ## Current Status
 
-- **Active phase:** E2 — the Electron shell. Phase E1 is **complete in both repos**.
+- **Active phase:** E3 — native menus. Phases E1 and E2 are **complete in both repos**.
 - **Last updated:** 2026-08-19
 - The technical unknowns that would have shaped the architecture were settled by spikes
   before this plan was written; results and what they rule out are in §3. They are the
@@ -29,7 +29,28 @@ that differ (§5). An identical copy lives in each repo; when a decision changes
   - VIC only: `scripts/generate-charset.mjs` writes `src/domain/romCharset.ts`, so its
     `TARGET` (and the path named in `rom/README.md`) moved too, and the two `parked/`
     globs in `tsconfig.app.json` and `eslint.config.ts` needed repointing.
-- Neither repo has an Electron dependency yet — that arrives with E2.
+- **E2 done.** `npm run dev` and `npm run build && npm run preview` both open a native
+  window running the editor. Verified in the running app over the DevTools protocol, not
+  by inspection: origin is `app://<host>`, `localStorage` survives a full restart, a
+  sample project opens at `/edit/<uuid>`, a reload at that route comes back to the same
+  route with the project loaded, `window.open` is denied and handed to the system
+  browser, an edit made 0 ms before a quit is flushed to storage, and the renderer
+  console is clean in both dev and production.
+- **D1 is resolved: `electron-vite@6.0.0-beta.1` works with Vite 8.** No fallback needed.
+  It is pinned exactly rather than caret-ranged — a silent bump to the next beta of the
+  tool this phase rests on is the risk D1 names. It emits `out/main/index.js` (ESM) and
+  `out/preload/index.mjs`, which is what `package.json` `main` and `webPreferences.preload`
+  are written against.
+- **One thing §3.2 did not foresee: electron-vite forces `base: './'` on the renderer.**
+  Its preset plugin assigns it in an `enforce: 'pre'` config hook for every production
+  build, so a `base` key in our own config is overwritten. Under `app://` that value is
+  wrong twice over — and `createWebHistory(import.meta.env.BASE_URL)` given `'./'`
+  silently resolves *every* route back to `/`, which is precisely the breakage D3 promised
+  to avoid. Fixed where it belongs, in the config: a small unenforced plugin in
+  `electron.vite.config.ts` restores `base: '/'` after the preset has run. The router is
+  still untouched.
+- `@electron-toolkit/preload` was installed and then dropped: its `electronAPI` export is
+  the broad `ipcRenderer` passthrough D5 rules out, so nothing imported it.
 
 ---
 
@@ -316,24 +337,24 @@ site is unchanged.
 **Goal:** `npm run dev` opens a native window running the editor, with routing, persistence
 and reloads all working. No menus, no dialogs yet.
 
-- [ ] **Spike first (D1):** install `electron-vite@6.0.0-beta.1` alongside Vite 8 and build
+- [x] **Spike first (D1):** install `electron-vite@6.0.0-beta.1` alongside Vite 8 and build
       a hello-world main + the real renderer. If it fails, take fallback 1 (pin Vite 7 +
       `electron-vite@5`) and record the switch here before continuing.
-- [ ] Add devDependencies: `electron`, `electron-vite`, `electron-builder`,
+- [x] Add devDependencies: `electron`, `electron-vite`, `electron-builder`,
       `@electron-toolkit/preload`, `@electron-toolkit/tsconfig`; dependency:
       `@electron-toolkit/utils`
-- [ ] `package.json`: `main` field pointing at the built main entry (confirm the extension
+- [x] `package.json`: `main` field pointing at the built main entry (confirm the extension
       electron-vite emits under `"type": "module"` — `.js` vs `.mjs` — and match it
       exactly); scripts `dev`, `build`, `preview` (Electron) and `dev:web`, `build:web`,
       `preview:web`
-- [ ] `electron.vite.config.ts`: `main`/`preload` with `externalizeDepsPlugin()`; `renderer`
+- [x] `electron.vite.config.ts`: `main`/`preload` with `externalizeDepsPlugin()`; `renderer`
       with `root: src/renderer`, the `@` alias, `vue()`, `tailwindcss()`, the
       `__APP_VERSION__` define, and **no** `vue-devtools` plugin
-- [ ] `src/shared/ipc.ts` + `src/shared/api.ts` — channel constants and the `AppApi` type
-- [ ] `src/preload/index.ts`: expose `window.api` with the v1 surface —
+- [x] `src/shared/ipc.ts` + `src/shared/api.ts` — channel constants and the `AppApi` type
+- [x] `src/preload/index.ts`: expose `window.api` with the v1 surface —
       `app.getVersion()`, `app.platform`, `app.onBeforeQuit(cb)`, `app.saveComplete()`
-- [ ] `src/preload/index.d.ts`: `declare global { interface Window { api: AppApi } }`
-- [ ] `src/main/index.ts`:
+- [x] `src/preload/index.d.ts`: `declare global { interface Window { api: AppApi } }`
+- [x] `src/main/index.ts`:
       - `protocol.registerSchemesAsPrivileged` for `app` (standard, secure,
         supportFetchAPI) **before** `whenReady`
       - `protocol.handle('app', …)` serving `out/renderer`, with the extensionless-path →
@@ -344,12 +365,12 @@ and reloads all working. No menus, no dialogs yet.
       - `setWindowOpenHandler` → `shell.openExternal`
       - macOS lifecycle: `window-all-closed` (don't quit on darwin), `activate` (recreate)
       - `electronApp.setAppUserModelId(appId)` and `optimizer.watchWindowShortcuts`
-- [ ] **Autosave-before-quit:** intercept `close`, send `APP_BEFORE_QUIT`, and have the
+- [x] **Autosave-before-quit:** intercept `close`, send `APP_BEFORE_QUIT`, and have the
       renderer call the projects store's existing `flushAutosave()` then `api.saveComplete()`.
       Keep the reference's 5-second safety valve so a wedged renderer cannot block a quit.
-- [ ] Add a CSP `<meta>` to `src/renderer/index.html` that is satisfiable by both the
+- [x] Add a CSP `<meta>` to `src/renderer/index.html` that is satisfiable by both the
       `app://` production load and the Vite dev server
-- [ ] `env.d.ts` or a new renderer-side type file references the preload `AppApi`
+- [x] `env.d.ts` or a new renderer-side type file references the preload `AppApi`
 
 **Exit criteria:** `npm run dev` opens the editor; create a project, edit it, quit, relaunch
 — the project is still there; navigate to `/edit/:id`, hit ⌘R — the same route reloads;

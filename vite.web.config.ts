@@ -31,6 +31,8 @@ export default defineConfig({
   resolve: {
     alias: {
       '@': resolvePath('./src/renderer/src'),
+      // Types the renderer shares with the preload bridge.
+      '@shared': resolvePath('./src/shared'),
     },
   },
   build: {
