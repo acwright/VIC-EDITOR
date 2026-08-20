@@ -10,6 +10,10 @@ const stubApi = {
     onBeforeQuit: () => () => {},
     saveComplete: () => {},
   },
+  menu: {
+    setContext: () => {},
+    onAction: () => () => {},
+  },
 } satisfies AppApi
 
 afterEach(() => {

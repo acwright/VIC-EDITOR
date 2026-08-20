@@ -26,6 +26,7 @@ import { ShareLinkError, decodeShare, takePendingShare } from '@/domain/share'
 import type { ProjectSummary } from '@/persistence/repository'
 import { SAMPLES, type Sample } from '@/samples'
 import { useProjectsStore } from '@/stores/projects'
+import { managerMenuContext, onMenuAction, reportMenuContext } from '@/utils/menu'
 import { matchManagerShortcut, shortcutLabel, type ManagerAction } from '@/utils/shortcuts'
 
 const store = useProjectsStore()
@@ -61,6 +62,17 @@ function onKeydown(event: KeyboardEvent) {
 
 onMounted(() => window.addEventListener('keydown', onKeydown))
 onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
+
+// Desktop only, and inert in a browser tab. The editor's items go dark here:
+// there is no project open for them to act on.
+let stopMenuAction: (() => void) | undefined
+onMounted(() => {
+  reportMenuContext(managerMenuContext())
+  stopMenuAction = onMenuAction((action) => {
+    if (action in ACTIONS) ACTIONS[action as ManagerAction]()
+  })
+})
+onBeforeUnmount(() => stopMenuAction?.())
 
 function openProject(id: string) {
   router.push(`/edit/${id}`)

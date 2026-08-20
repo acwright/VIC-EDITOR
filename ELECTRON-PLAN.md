@@ -14,7 +14,8 @@ that differ (§5). An identical copy lives in each repo; when a decision changes
 
 ## Current Status
 
-- **Active phase:** E3 — native menus. Phases E1 and E2 are **complete in both repos**.
+- **Active phase:** E4 — native file dialogs. Phases E1, E2 and E3 are **complete in both
+  repos**.
 - **Last updated:** 2026-08-19
 - The technical unknowns that would have shaped the architecture were settled by spikes
   before this plan was written; results and what they rule out are in §3. They are the
@@ -51,6 +52,19 @@ that differ (§5). An identical copy lives in each repo; when a decision changes
   still untouched.
 - `@electron-toolkit/preload` was installed and then dropped: its `electronAPI` export is
   the broad `ipcRenderer` passthrough D5 rules out, so nothing imported it.
+- **E3 done.** Both apps have a real menu bar, a window that reopens where it was left, and
+  an About panel. Verified in the running app by reading the live macOS menu through the
+  accessibility API and driving it with real clicks and real keystrokes — not by
+  inspection. Labels and enabled state follow the open mode: a TMS sprite project says
+  "Fill the sprite" and greys the grid overlay, a multicolor project greys the pattern
+  items, and the project list greys everything but New project and Keyboard shortcuts.
+  Clicking Edit ▸ Pattern ▸ Invert changes the pattern, Help ▸ Keyboard shortcuts opens the
+  help sheet, and ⌘Z steps back exactly one edit. Window bounds survive a ⌘Q, a maximized
+  window reopens maximized with its restored size intact, and bounds naming a display that
+  is no longer attached are dropped so the window centres.
+- **E3 opened on an assumption that turned out to be wrong**, and §3.5 records the
+  measurement that replaced it: a menu accelerator does *not* take the key away from the
+  renderer. **D11** covers what that costs and what it buys.
 
 ---
 
@@ -165,6 +179,29 @@ Every other plugin in the chain already allows Vite 8 (`@vitejs/plugin-vue`,
 `@tailwindcss/vite`, `vite-plugin-vue-devtools`, `vitest`), so this is the single blocker.
 See decision **D1**.
 
+### 3.5 A menu accelerator fires the menu item *and* still reaches the page
+
+Measured on Electron 43 with a real menu and real keystrokes — via `System Events`, since
+`webContents.sendInputEvent` injects straight into the renderer and bypasses the native
+menu entirely, so the first attempt at this spike measured nothing at all:
+
+| Menu item | Menu click fires | Renderer `keydown` fires |
+| --- | --- | --- |
+| `accelerator: 'CmdOrCtrl+S'` | yes | **yes** |
+| same, plus `registerAccelerator: false` | **yes** | yes |
+| `accelerator: 'CmdOrCtrl+D'`, `enabled: false` | no | yes |
+
+Two things follow. The common belief that an accelerator *consumes* the key is false here,
+so an accelerated menu item whose click dispatches an action would run that action **twice**
+on every press. And `registerAccelerator: false` — the escape hatch documented for exactly
+this case — did not suppress the click either, so it is not the fix.
+
+The third row is the useful one: a **disabled** item is genuinely inert, and lets the key
+through untouched.
+
+**Consequence:** D11. Action items carry no accelerator, and the keyboard stays the
+renderer's job alone.
+
 ---
 
 ## 4. Confirmed decisions
@@ -215,10 +252,24 @@ reference.
 builds the same renderer to `dist/web`, and the Pages workflow is updated in the same phase
 that moves the files, so `main` is never left with a broken deploy.
 
+**D11 — No accelerators on menu items that dispatch an action.**
+Forced by §3.5: an accelerator would double-fire the action, and would fire it in the very
+contexts the renderer's key handler deliberately skips — while a text field has focus, or
+while a dialog is open. So keys are handled in exactly one place, the renderer, identically
+on the web and on the desktop, and the menu is a click surface. What this costs is the key
+hint beside the menu item, which is why Help ▸ Keyboard shortcuts is the Help menu's first
+entry. Items built from Electron *roles* (Copy, Reload, Quit, Toggle Full Screen) keep
+their standard accelerators — the editors' map binds none of those keys. One consequence
+worth knowing: with a dialog open the keyboard is inert but the menu is not, so Edit ▸ Undo
+works there while ⌘Z does nothing.
+
 **D10 — Menu items dispatch the existing shortcut actions.** `src/utils/shortcuts.ts` is
 already the single source of truth for the keyboard map, with a typed action union. Native
 menu items send those same action ids over IPC rather than inventing a parallel command
-list, so a menu item and its keyboard shortcut cannot disagree.
+list, so a menu item and its keyboard shortcut cannot disagree. Which items are live is
+decided the same way: the renderer runs the shortcut map's own mode predicate and sends
+main the resulting action ids together with their wording for the open mode, so main
+receives the answer and never restates the question.
 
 ---
 
@@ -242,9 +293,12 @@ this document is identical for both.
 Shared: author `A.C. Wright <acwrightdesign@gmail.com>`, MIT, copyright
 `© 2026 A.C. Wright`, macOS category Developer Tools, Linux category `Graphics`.
 
-Window defaults (both): **1280×860**, minimum **1024×700**. Confirm the minimum against the
-editor layout at the start of Phase E3 and adjust — the number should be the width below
-which the character/screen columns stop being usable, not a guess.
+Window defaults (both): **1280×860**, minimum **1024×640** — measured in Phase E3 against
+both running layouts, which agree to the pixel. 1024 is the width at which the character
+and screen columns stop sitting side by side and collapse into the tab split, the
+responsive layout the web build needs on a phone and not something a desktop window should
+be resizable into; 640 is the height at which the screen preview drops from 2× to 1×.
+Nothing overflows below either number — the layout simply stops being the desktop one.
 
 ---
 
@@ -279,11 +333,13 @@ After Phase E1 + E2, each repo looks like this. Files marked **new** did not exi
     │   └── index.d.ts              new   declares window.api
     ├── shared/
     │   ├── ipc.ts                  new   channel constants
-    │   └── api.ts                  new   the AppApi type, shared by both sides
+    │   ├── api.ts                  new   the AppApi type, shared by both sides
+    │   └── menu.ts                 new   the menu's action table (Phase E3)
     └── renderer/
         ├── index.html                    moved from ./index.html
         ├── public/                       moved from ./public/
         └── src/                          moved from ./src/  (everything, unchanged)
+            └── utils/menu.ts       new   what the menu offers, read off the shortcut map
 ```
 
 `out/` (electron-vite output) and `dist/` (both the web build and electron-builder's
@@ -381,28 +437,41 @@ npm run preview` runs the same from built output; `npm run build:web` still pass
 
 **Goal:** it stops feeling like a web page in a frame.
 
-- [ ] `src/main/menu.ts`: a real menu — App (macOS: About, Services, Hide, Quit), File,
+- [x] `src/main/menu.ts`: a real menu — App (macOS: About, Services, Hide, Quit), File,
       Edit, View, Window, Help
-- [ ] Per D10, File/Edit/View items that map to editor behaviour send a shortcut **action
+- [x] Per D10, File/Edit/View items that map to editor behaviour send a shortcut **action
       id** over IPC; the renderer routes it into the same handler table the keyboard map
-      already dispatches to. Accelerators are `CmdOrCtrl+…` mirroring `shortcuts.ts`.
-- [ ] Menu items whose action is meaningless in the current view or project mode are
-      disabled rather than silently inert (the shortcut map is already mode-aware — reuse
-      that predicate, don't restate it)
-- [ ] Help → "Keyboard shortcuts" opens the existing help sheet; Help → repo link
-- [ ] View: reload, toggle DevTools (dev only), zoom in/out/reset, toggle fullscreen
-- [ ] `src/main/windowState.ts`: persist size/position/maximized to
+      already dispatches to. **No accelerators** — see D11; the plan's original
+      "`CmdOrCtrl+…` mirroring `shortcuts.ts`" is what §3.5 ruled out.
+- [x] Menu items whose action is meaningless in the current view or project mode are
+      disabled rather than silently inert. The renderer reports the live action ids from
+      `editorActionsFor(type)` / `editorActions()`, which runs the shortcut map's own
+      predicate — main never restates it.
+- [x] Help → "Keyboard shortcuts" opens the existing help sheet; Help → repo link
+- [x] View: reload, toggle DevTools (unpackaged only), the editor's own paging/zoom/overlay
+      items, an **Interface Size** submenu for the window zoom roles, toggle fullscreen.
+      The window-zoom roles are named for what they scale so they cannot be mistaken for
+      the editor's Zoom in/out, which scale the screen preview.
+- [x] `src/main/windowState.ts`: persist size/position/maximized to
       `userData/window-state.json`, modelled on the reference's `SettingsService`
       (synchronous, tiny, defaults on any read failure); restore on launch, clamped to a
       currently-attached display
-- [ ] About panel: `app.setAboutPanelOptions` with version, copyright, icon
-- [ ] Confirm and set the real minimum window size (§5)
-- [ ] Tests: the menu→action mapping is a pure table; assert it covers the action union
-      exactly, the same way `shortcuts.spec.ts` holds the README to the key list
+- [x] About panel: `app.setAboutPanelOptions` with name, version and copyright. **No icon
+      yet** — `iconPath` needs a real file on disk and `build/icon.png` is generated in E5;
+      wire it there.
+- [x] Confirm and set the real minimum window size (§5) — measured, now **1024×640**
+- [x] Tests: the menu→action mapping is a pure table in `src/shared/menu.ts`; `menu.spec.ts`
+      asserts it covers the action union exactly, invents nothing of its own, and takes
+      every label from the shortcut's own description
 
 **Exit criteria:** every menu item does what it says on all three platforms (or is
 correctly disabled); the window reopens where it was left; ⌘Q flushes an unsaved edit
 before quitting; no menu item duplicates a shortcut with a different meaning.
+
+**Met on macOS, verified in the running app** (see Current Status). Windows and Linux are
+unverified until E5 produces artifacts to run — the only platform-conditional code is the
+`isMac` branching in `menu.ts` (app menu vs. File ▸ Quit and Help ▸ About), so that is the
+part to re-check there.
 
 ### Phase E4 — Native file dialogs
 
@@ -491,7 +560,7 @@ the README can build every target from a clean clone.
 | Wine or Docker missing on the build machine | Medium | Prerequisites documented in the README; both are the reference's existing workflow |
 | `app://` handler mis-serves an asset type | Low | Standard scheme + `net.fetch` of a `file://` URL preserves MIME; spike already served HTML and resolved a deep link |
 | electron-builder cleaning `dist/` eats `dist/web` | Low | Watch for it in E5; move builder output to `release/` if seen |
-| Menu accelerators colliding with renderer key handling | Low | D10 routes both through one action table; the menu test asserts full coverage |
+| ~~Menu accelerators colliding with renderer key handling~~ | — | Happened, and worse than feared: an accelerator double-fires (§3.5). Closed by D11 |
 
 ---
 

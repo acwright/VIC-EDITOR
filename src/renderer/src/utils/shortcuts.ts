@@ -244,6 +244,16 @@ function match<A extends string>(list: readonly Shortcut<A>[], event: KeyboardEv
   return list.find((entry) => entry.keys.some((key) => matchesEvent(key, event)))?.action ?? null
 }
 
+/**
+ * Every editor action, in map order.
+ *
+ * The native menu asks rather than listing the actions itself, so that adding
+ * a shortcut lights up its menu item without a second edit.
+ */
+export function editorActions(): EditorAction[] {
+  return EDITOR_SHORTCUTS.map((entry) => entry.action)
+}
+
 /** The editor action this key press means, or null when it means nothing. */
 export function matchEditorShortcut(event: KeyboardEvent): EditorAction | null {
   return match(EDITOR_SHORTCUTS, event)

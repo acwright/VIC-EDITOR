@@ -3,8 +3,12 @@ import { dirname, extname, isAbsolute, join, relative } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import { IPC } from '../shared/ipc'
+import { EMPTY_MENU_CONTEXT, type MenuContext } from '../shared/menu'
+import { buildMenu, setMenuContext } from './menu'
+import { MIN_WINDOW_SIZE, loadWindowState, trackWindowState } from './windowState'
 
 const APP_ID = 'com.acwright.vic20editor'
+const PRODUCT_NAME = 'VIC-20 Editor'
 
 /**
  * The renderer is served over a custom **standard** scheme rather than
@@ -60,14 +64,18 @@ function registerAppProtocol(): void {
 }
 
 function createWindow(): void {
+  const state = loadWindowState()
+
   mainWindow = new BrowserWindow({
-    width: 1280,
-    height: 860,
-    // The editor's three columns stop being usable below this; revisited in E3.
-    minWidth: 1024,
-    minHeight: 700,
-    center: true,
-    title: 'VIC-20 Editor',
+    width: state.width,
+    height: state.height,
+    // Absent on a first launch, and dropped when the display they named is no
+    // longer attached — either way the window centres instead.
+    ...(state.x !== undefined && state.y !== undefined ? { x: state.x, y: state.y } : {}),
+    minWidth: MIN_WINDOW_SIZE.width,
+    minHeight: MIN_WINDOW_SIZE.height,
+    center: state.x === undefined,
+    title: PRODUCT_NAME,
     backgroundColor: '#0a0a0a',
     // Shown on `ready-to-show` so the first paint is the app, not a white flash.
     show: false,
@@ -81,6 +89,9 @@ function createWindow(): void {
       sandbox: false,
     },
   })
+
+  if (state.maximized) mainWindow.maximize()
+  trackWindowState(mainWindow)
 
   mainWindow.on('ready-to-show', () => mainWindow?.show())
 
@@ -97,6 +108,10 @@ function createWindow(): void {
 
   mainWindow.on('closed', () => {
     mainWindow = null
+    // macOS keeps the app running with no window. Nothing in the menu has a
+    // view to act on until one is reopened, so it all goes grey rather than
+    // staying lit over a window that is gone.
+    setMenuContext(EMPTY_MENU_CONTEXT)
   })
 
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
@@ -147,6 +162,14 @@ app.on('before-quit', () => {
 app.whenReady().then(() => {
   electronApp.setAppUserModelId(APP_ID)
 
+  // macOS reads this for the About panel under the app menu; Windows and Linux
+  // for the panel `app.showAboutPanel()` opens from Help.
+  app.setAboutPanelOptions({
+    applicationName: PRODUCT_NAME,
+    applicationVersion: app.getVersion(),
+    copyright: '\u00a9 2026 A.C. Wright',
+  })
+
   // F12 opens DevTools in development and does nothing in a packaged build;
   // Cmd/Ctrl+R reloads. Both without a menu entry of their own (E3 adds those).
   app.on('browser-window-created', (_, window) => {
@@ -157,8 +180,14 @@ app.whenReady().then(() => {
 
   ipcMain.handle(IPC.APP_GET_VERSION, () => app.getVersion())
   ipcMain.on(IPC.APP_SAVE_COMPLETE, () => finishClose())
+  ipcMain.on(IPC.MENU_SET_CONTEXT, (_event, context: MenuContext) => setMenuContext(context))
 
   createWindow()
+
+  // Everything is disabled until the view on screen reports what it offers,
+  // which it does as it mounts. The menu bar exists from launch on macOS, so
+  // it is built here rather than waiting for that first report.
+  buildMenu()
 
   // macOS keeps the app alive with no windows; clicking the dock icon reopens.
   app.on('activate', () => {

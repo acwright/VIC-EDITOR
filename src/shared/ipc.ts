@@ -12,6 +12,10 @@ export const IPC = {
   APP_BEFORE_QUIT: 'app:before-quit',
   /** Renderer → main: flushing is done, the close may proceed. */
   APP_SAVE_COMPLETE: 'app:save-complete',
+  /** Renderer → main: which menu actions are live, and what to call them. */
+  MENU_SET_CONTEXT: 'menu:set-context',
+  /** Main → renderer: a menu item was chosen; here is its action id. */
+  MENU_ACTION: 'menu:action',
 } as const
 
 export type IpcChannel = (typeof IPC)[keyof typeof IPC]
