@@ -8,7 +8,7 @@ folder, copied from a local VICE 3.10 install:
     /opt/homebrew/share/vice/VIC20/chargen-901460-03.bin
 
 Build-time input only. `scripts/generate-charset.mjs` reads it and emits
-`src/domain/romCharset.ts`; the binary is never imported by the app and never
+`src/renderer/src/domain/romCharset.ts`; the binary is never imported by the app and never
 reaches the bundle.
 
 ## Identity

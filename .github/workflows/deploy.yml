@@ -45,11 +45,11 @@ jobs:
 
       # Pages has no SPA fallback of its own; a copy of index.html at 404.html
       # is the conventional way to let deep links reach the router.
-      - run: cp dist/index.html dist/404.html
+      - run: cp dist/web/index.html dist/web/404.html
 
       - uses: actions/upload-pages-artifact@v4
         with:
-          path: dist
+          path: dist/web
 
   deploy:
     needs: build

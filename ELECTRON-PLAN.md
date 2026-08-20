@@ -14,12 +14,22 @@ that differ (§5). An identical copy lives in each repo; when a decision changes
 
 ## Current Status
 
-- **Active phase:** none — planning only. Phase E1 is the next thing to do.
+- **Active phase:** E2 — the Electron shell. Phase E1 is **complete in both repos**.
 - **Last updated:** 2026-08-19
 - The technical unknowns that would have shaped the architecture were settled by spikes
   before this plan was written; results and what they rule out are in §3. They are the
   reason §4 can commit to a custom `app://` scheme and to keeping `"type": "module"`.
-- Nothing in either repo has been modified yet.
+- **E1 done.** The renderer moved to `src/renderer/` in both repos and every gate is
+  green: lint, `vue-tsc --build`, the full unit suite, `npm run build`, `npm run dev` and
+  `npm run preview`. `git log --follow` traverses the move. Two things the phase list did
+  not anticipate, both now handled:
+  - `vitest.config.ts` needs an explicit top-level `root` pointing back at the repo root.
+    Merging `vite.web.config.ts` otherwise inherits its `root: src/renderer`, which sends
+    `setupFiles: ['./vitest.setup.ts']` looking in the wrong directory.
+  - VIC only: `scripts/generate-charset.mjs` writes `src/domain/romCharset.ts`, so its
+    `TARGET` (and the path named in `rom/README.md`) moved too, and the two `parked/`
+    globs in `tsconfig.app.json` and `eslint.config.ts` needed repointing.
+- Neither repo has an Electron dependency yet — that arrives with E2.
 
 ---
 
@@ -270,30 +280,30 @@ a later one to make the repo work again.
 **Goal:** the file move and every config that points at it, with the web build, tests, lint
 and type-check all still passing. No Electron dependency is installed in this phase.
 
-- [ ] `git mv src src-tmp && mkdir -p src/renderer && git mv src-tmp src/renderer/src`
+- [x] `git mv src src-tmp && mkdir -p src/renderer && git mv src-tmp src/renderer/src`
       (two steps so git records a rename, not a delete/add)
-- [ ] `git mv index.html src/renderer/index.html`, `git mv public src/renderer/public`
-- [ ] `git mv env.d.ts src/renderer/env.d.ts` — it belongs with the renderer sources
-- [ ] Rename `vite.config.ts` → `vite.web.config.ts`; set `root: resolve('src/renderer')`,
+- [x] `git mv index.html src/renderer/index.html`, `git mv public src/renderer/public`
+- [x] `git mv env.d.ts src/renderer/env.d.ts` — it belongs with the renderer sources
+- [x] Rename `vite.config.ts` → `vite.web.config.ts`; set `root: resolve('src/renderer')`,
       `publicDir: resolve('src/renderer/public')`, `build.outDir: resolve('dist/web')`,
       `emptyOutDir: true`; repoint the `@` alias at `src/renderer/src`; keep the
       `__APP_VERSION__` define and the `VITE_BASE` handling exactly as they are
-- [ ] `vitest.config.ts`: import `./vite.web.config`; check `test.root` and the
+- [x] `vitest.config.ts`: import `./vite.web.config`; check `test.root` and the
       `setupFiles` path still resolve; `src/**/__tests__` globs become
       `src/renderer/src/**/__tests__`
-- [ ] `tsconfig.app.json`: `include` → `src/renderer/env.d.ts`, `src/renderer/src/**/*`;
+- [x] `tsconfig.app.json`: `include` → `src/renderer/env.d.ts`, `src/renderer/src/**/*`;
       `paths` `@/*` → `./src/renderer/src/*`; same for `tsconfig.vitest.json`
-- [ ] `tsconfig.node.json`: add `vite.web.config.*`
-- [ ] `eslint.config.ts`: the `pluginVitest` block's `files` glob
+- [x] `tsconfig.node.json`: add `vite.web.config.*`
+- [x] `eslint.config.ts`: the `pluginVitest` block's `files` glob
       (`src/**/__tests__/*` → `src/renderer/src/**/__tests__/*`)
-- [ ] `package.json` scripts: `dev` → `vite --config vite.web.config.ts`,
+- [x] `package.json` scripts: `dev` → `vite --config vite.web.config.ts`,
       `build-only` → `vite build --config vite.web.config.ts`,
       `preview` → `vite preview --config vite.web.config.ts`. (Phase E2 renames these to
       `dev:web` / `build:web` and gives `dev` to Electron.)
-- [ ] `.github/workflows/deploy.yml`: the artifact path becomes `dist/web`, and the SPA
+- [x] `.github/workflows/deploy.yml`: the artifact path becomes `dist/web`, and the SPA
       fallback copy becomes `cp dist/web/index.html dist/web/404.html`
-- [ ] `.gitignore`: add `out/`
-- [ ] `scripts/generate-icons.mjs`: its `PUBLIC_DIR` constant now points at
+- [x] `.gitignore`: add `out/`
+- [x] `scripts/generate-icons.mjs`: its `PUBLIC_DIR` constant now points at
       `src/renderer/public`
 
 **Exit criteria:** `npm run lint`, `npm run type-check`, `npm run test:unit -- --run` and

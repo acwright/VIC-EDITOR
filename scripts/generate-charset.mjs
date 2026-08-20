@@ -4,7 +4,7 @@
  *   node scripts/generate-charset.mjs
  *
  * Reads `rom/chargen.bin` — the VIC-20 `901460-03` character ROM, build-time
- * input only — and emits `src/domain/romCharset.ts`: the four 1 KB blocks as
+ * input only — and emits `src/renderer/src/domain/romCharset.ts`: the four 1 KB blocks as
  * base64, plus a decoder. The binary never reaches the bundle; the generated
  * module does, and is committed (PLAN.md D16).
  *
@@ -24,7 +24,7 @@ import { dirname, join } from 'node:path'
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const SOURCE = join(ROOT, 'rom', 'chargen.bin')
-const TARGET = join(ROOT, 'src', 'domain', 'romCharset.ts')
+const TARGET = join(ROOT, 'src', 'renderer', 'src', 'domain', 'romCharset.ts')
 
 const ROM_SIZE = 4096
 const BLOCK_SIZE = 1024

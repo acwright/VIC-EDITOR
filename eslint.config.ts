@@ -21,7 +21,7 @@ export default defineConfigWithVueTs(
     '**/dist/**',
     '**/dist-ssr/**',
     '**/coverage/**',
-    'src/components/parked/**',
+    'src/renderer/src/components/parked/**',
   ]),
 
   ...pluginVue.configs['flat/essential'],
@@ -29,7 +29,7 @@ export default defineConfigWithVueTs(
 
   {
     ...pluginVitest.configs.recommended,
-    files: ['src/**/__tests__/*'],
+    files: ['src/renderer/src/**/__tests__/*'],
   },
 
   ...pluginOxlint.buildFromOxlintConfigFile('.oxlintrc.json'),

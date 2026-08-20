@@ -1,16 +1,16 @@
 {
   "extends": "@vue/tsconfig/tsconfig.dom.json",
-  "include": ["env.d.ts", "src/**/*", "src/**/*.vue"],
+  "include": ["src/renderer/env.d.ts", "src/renderer/src/**/*", "src/renderer/src/**/*.vue"],
   // `parked/` holds components shelved for PLAN.md Phase 10 (Shape mode);
   // they do not compile against the current model and nothing imports them.
-  "exclude": ["src/**/__tests__/*", "src/components/parked/**"],
+  "exclude": ["src/renderer/src/**/__tests__/*", "src/renderer/src/components/parked/**"],
   "compilerOptions": {
     // Extra safety for array and object lookups, but may have false positives.
     "noUncheckedIndexedAccess": true,
 
     // Path mapping for cleaner imports.
     "paths": {
-      "@/*": ["./src/*"]
+      "@/*": ["./src/renderer/src/*"]
     },
 
     // `vue-tsc --build` produces a .tsbuildinfo file for incremental type-checking.

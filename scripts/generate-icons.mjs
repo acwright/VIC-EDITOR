@@ -5,7 +5,7 @@
  *
  * The icon is a monochrome pixel-art "V" glyph on a black tile — drawn on the
  * same 8×8 grid the editor works in, and readable at favicon sizes. Black and
- * white only; no palette color. Emits, into public/:
+ * white only; no palette color. Emits, into src/renderer/public/:
  *
  *   favicon.svg          — primary, scalable, rounded tile
  *   favicon.ico          — 32×32 PNG-in-ICO fallback (square)
@@ -21,7 +21,7 @@ import { writeFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
 
-const PUBLIC_DIR = join(dirname(fileURLToPath(import.meta.url)), '..', 'public')
+const PUBLIC_DIR = join(dirname(fileURLToPath(import.meta.url)), '..', 'src', 'renderer', 'public')
 
 // 8×8 source glyph — 1 = white pixel, 0 = black (left-right symmetric).
 const GLYPH = [
