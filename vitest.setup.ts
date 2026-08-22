@@ -70,3 +70,17 @@ if (typeof HTMLCanvasElement !== 'undefined') {
 if (typeof Element !== 'undefined' && !Element.prototype.scrollIntoView) {
   Element.prototype.scrollIntoView = () => {}
 }
+
+/**
+ * jsdom has no layout and no ResizeObserver. Panels that size a canvas to the
+ * space they are given construct one on mount; a stub that never fires is the
+ * right behaviour here, since there are no boxes to observe — they keep the
+ * default scale or column count, which is what these specs assert against.
+ */
+if (typeof globalThis.ResizeObserver === 'undefined') {
+  globalThis.ResizeObserver = class {
+    observe(): void {}
+    unobserve(): void {}
+    disconnect(): void {}
+  } as unknown as typeof ResizeObserver
+}

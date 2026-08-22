@@ -198,14 +198,18 @@ function formatDate(iso: string): string {
 
 <template>
   <div class="mx-auto flex min-h-dvh max-w-5xl flex-col px-6 py-10">
-    <header class="mb-8 flex items-end justify-between border-b border-ink-800 pb-4">
+    <!-- Stacked until sm: side by side, the button group squeezes the description
+         into a ~170px column on a phone -->
+    <header
+      class="mb-8 flex flex-col items-start gap-4 border-b border-ink-800 pb-4 sm:flex-row sm:items-end sm:justify-between"
+    >
       <div>
         <h1 class="text-4xl">VIC-20 Editor</h1>
         <p class="text-sm text-ink-400">
           Character &amp; screen editor for the Commodore VIC-20 (MOS 6560/6561)
         </p>
       </div>
-      <div class="flex gap-2">
+      <div class="flex shrink-0 flex-wrap gap-2">
         <AppButton
           label="Keyboard Shortcuts"
           :shortcut="shortcutLabel('help')"
@@ -249,28 +253,42 @@ function formatDate(iso: string): string {
              name's optical center -->
         <button
           type="button"
-          class="flex min-w-0 flex-1 basis-full cursor-pointer items-center gap-3 rounded-sm px-2 py-1.5 text-left focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink-300 sm:basis-0"
+          class="flex min-w-0 flex-1 basis-full cursor-pointer items-center gap-3 rounded-sm px-2 py-1.5 text-left focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink-300 lg:min-w-64 lg:basis-0"
           @click="openProject(summary.id)"
         >
-          <span class="font-display truncate text-2xl tracking-wider">{{ summary.name }}</span>
+          <!-- One step down on a phone: at 2xl the name and the mode chip leave
+               ~196px for a name that wants 213, so even a short one truncated -->
+          <span class="font-display truncate text-xl tracking-wider sm:text-2xl">
+            {{ summary.name }}
+          </span>
           <span
             class="shrink-0 rounded-xs border border-ink-600 px-1.5 py-0.5 text-[10px] tracking-wider text-ink-300 uppercase"
           >
             {{ MODES[summary.type].label }}
           </span>
         </button>
-        <!-- Own row below the name on narrow viewports; inline with it from sm up -->
-        <div class="flex min-w-0 flex-1 basis-full items-center gap-x-4 sm:flex-none sm:basis-auto">
+        <!-- Own row below the name until lg, inline with it above. The date plus
+             five fixed-width actions need ~360px, so sharing the row any sooner
+             left the name 46px at 640px — measured. Within this row the actions
+             wrap under the date when they don't fit, and lg:min-w-64 on the name
+             makes the whole row drop back below it rather than crush the name:
+             both adjust to a longer locale date or another button on their own.
+             gap-y-2.5 rather than the row's own gap-y-1: the name button's
+             py-1.5 puts 6px inside its box above the date, so 4px below the
+             date left it sitting against the actions. 6 + 4 = 10 either side. -->
+        <div
+          class="flex min-w-0 flex-1 basis-full flex-wrap items-center gap-x-4 gap-y-2.5 lg:flex-none lg:basis-auto"
+        >
           <span
-            class="shrink-0 px-2 text-xs tabular-nums text-ink-400 sm:px-0"
+            class="shrink-0 px-2 text-xs tabular-nums text-ink-400 lg:px-0"
             :title="geometryTitle(summary)"
           >
             {{ geometryLabel(summary) }}
           </span>
-          <span class="truncate text-xs tabular-nums text-ink-500">
+          <span class="text-xs whitespace-nowrap tabular-nums text-ink-500">
             {{ formatDate(summary.modifiedAt) }}
           </span>
-          <div class="ml-auto flex shrink-0 gap-1">
+          <div class="ml-auto flex shrink-0 flex-wrap justify-end gap-1">
             <AppButton label="Rename" @click="startRename(summary)">
               <Pencil class="size-4" />
             </AppButton>
@@ -293,7 +311,7 @@ function formatDate(iso: string): string {
 
     <div
       v-else
-      class="flex flex-1 flex-col items-center justify-center rounded-md border border-dashed border-ink-700 text-ink-500"
+      class="flex flex-1 flex-col items-center justify-center gap-1 rounded-md border border-dashed border-ink-700 px-4 py-10 text-center text-ink-500"
     >
       <p class="font-display text-2xl tracking-wider">No projects yet</p>
       <p class="text-sm">Create a new project or upload a saved one</p>

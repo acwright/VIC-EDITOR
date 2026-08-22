@@ -7,7 +7,12 @@
 
 import { DEFAULT_ASM_DIALECT, isAsmDialectId, type AsmDialectId } from '@/domain/export/assembly'
 import { DEFAULT_LABEL_CASE, isLabelCase, type LabelCase } from '@/domain/export/labels'
-import { DEFAULT_CHARSET_VIEW, isCharsetView, type CharsetView } from '@/utils/charsetView'
+import {
+  DEFAULT_CHARSET_VIEW,
+  defaultCharsetView,
+  isCharsetView,
+  type CharsetView,
+} from '@/utils/charsetView'
 import type { KVStorage } from './repository'
 
 export const PREFERENCES_KEY = 'vic20-editor:prefs'
@@ -37,29 +42,38 @@ function safeStorage(storage?: KVStorage): KVStorage | null {
 }
 
 /** Read stored preferences, filling in defaults for anything missing or invalid. */
+/**
+ * The defaults as they apply right now. Only the charset layout varies: which
+ * one a first visit wants depends on the viewport it lands in.
+ */
+function defaults(): Preferences {
+  return { ...DEFAULT_PREFERENCES, charsetView: defaultCharsetView() }
+}
+
 export function loadPreferences(storage?: KVStorage): Preferences {
+  const base = defaults()
   const kv = safeStorage(storage)
   let raw: string | null = null
   try {
     raw = kv?.getItem(PREFERENCES_KEY) ?? null
   } catch {
-    return { ...DEFAULT_PREFERENCES }
+    return base
   }
-  if (!raw) return { ...DEFAULT_PREFERENCES }
+  if (!raw) return base
   let parsed: unknown
   try {
     parsed = JSON.parse(raw)
   } catch {
-    return { ...DEFAULT_PREFERENCES }
+    return base
   }
   if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
-    return { ...DEFAULT_PREFERENCES }
+    return base
   }
   const p = parsed as Record<string, unknown>
   return {
-    labelCase: isLabelCase(p.labelCase) ? p.labelCase : DEFAULT_PREFERENCES.labelCase,
-    asmDialect: isAsmDialectId(p.asmDialect) ? p.asmDialect : DEFAULT_PREFERENCES.asmDialect,
-    charsetView: isCharsetView(p.charsetView) ? p.charsetView : DEFAULT_PREFERENCES.charsetView,
+    labelCase: isLabelCase(p.labelCase) ? p.labelCase : base.labelCase,
+    asmDialect: isAsmDialectId(p.asmDialect) ? p.asmDialect : base.asmDialect,
+    charsetView: isCharsetView(p.charsetView) ? p.charsetView : base.charsetView,
   }
 }
 

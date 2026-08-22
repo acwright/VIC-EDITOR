@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onBeforeUnmount, ref, useTemplateRef } from 'vue'
+import { nextTick, onBeforeUnmount, ref, useTemplateRef } from 'vue'
 
 const props = withDefaults(
   defineProps<{
@@ -17,7 +17,11 @@ const props = withDefaults(
 // auto-inherited — forward them onto the anchor span explicitly.
 defineOptions({ inheritAttrs: false })
 
+/** Clear space kept between the tooltip and the viewport edge when clamping. */
+const EDGE_GAP = 8
+
 const anchor = useTemplateRef('anchor')
+const tip = useTemplateRef('tip')
 
 // Teleported to <body> so it escapes panel overflow clipping; driven purely by
 // `visible` so it can never get stuck open (unlike a manual popover).
@@ -27,14 +31,27 @@ let showTimer: ReturnType<typeof setTimeout> | undefined
 
 function show() {
   clearTimeout(showTimer)
-  showTimer = setTimeout(() => {
+  showTimer = setTimeout(async () => {
     const rect = anchor.value?.getBoundingClientRect()
     if (!rect) return
+    const centre = rect.left + rect.width / 2
     position.value = {
-      left: `${rect.left + rect.width / 2}px`,
+      left: `${centre}px`,
       top: props.placement === 'top' ? `${rect.top - 6}px` : `${rect.bottom + 6}px`,
     }
     visible.value = true
+
+    // The tooltip is centred on its anchor, so one near a screen edge would
+    // hang off it — and its width is only knowable once it is in the DOM. Hence
+    // the second pass. Both `left` writes land in the same microtask batch, so
+    // the unclamped one is never painted.
+    await nextTick()
+    if (!tip.value) return
+    const half = tip.value.getBoundingClientRect().width / 2
+    // Order matters: a tooltip too wide to fit at all pins to the left edge and
+    // overflows right, rather than the other way round.
+    const clamped = Math.max(EDGE_GAP + half, Math.min(centre, window.innerWidth - EDGE_GAP - half))
+    position.value = { ...position.value, left: `${clamped}px` }
   }, 100)
 }
 
@@ -62,6 +79,7 @@ onBeforeUnmount(() => clearTimeout(showTimer))
   <Teleport to="body">
     <span
       v-if="visible"
+      ref="tip"
       role="tooltip"
       class="pointer-events-none fixed z-100 flex -translate-x-1/2 items-center gap-1.5 rounded-sm border border-ink-700 bg-ink-850 px-2 py-1 text-xs whitespace-nowrap text-ink-200 shadow-lg"
       :class="placement === 'top' ? '-translate-y-full' : ''"

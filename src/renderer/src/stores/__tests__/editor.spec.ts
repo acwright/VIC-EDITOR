@@ -802,15 +802,35 @@ describe('editor store', () => {
       expect(editor.screenScale).toBe(1)
     })
 
-    it('fitScreenScale floors and clamps without marking manual', () => {
+    it('fitScreenScale keeps the fraction and clamps without marking manual', () => {
+      // Flooring here is what left the screen at 1× in a viewport with room for
+      // 1.47×, wasting a third of the width and two thirds of the height.
       const { editor } = setup()
       editor.fitScreenScale(4.7)
-      expect(editor.screenScale).toBe(4)
+      expect(editor.screenScale).toBe(4.7)
       expect(editor.screenZoomedManually).toBe(false)
+      editor.fitScreenScale(1.4712)
+      expect(editor.screenScale).toBe(1.47)
       editor.fitScreenScale(0.2)
       expect(editor.screenScale).toBe(1)
       editor.fitScreenScale(99)
       expect(editor.screenScale).toBe(8)
+    })
+
+    it('zoomScreen steps to whole scales from a fitted fraction', () => {
+      const { editor } = setup()
+      editor.fitScreenScale(1.47)
+      editor.zoomScreen(1)
+      expect(editor.screenScale).toBe(2)
+      expect(editor.screenZoomedManually).toBe(true)
+
+      editor.fitScreenScale(1.47)
+      editor.zoomScreen(-1)
+      expect(editor.screenScale).toBe(1)
+
+      editor.fitScreenScale(3.5)
+      editor.zoomScreen(-1)
+      expect(editor.screenScale).toBe(3)
     })
 
     it('toggleGrid flips the overlay (default on)', () => {
@@ -837,6 +857,16 @@ describe('editor store', () => {
 
       editor.toggleAspect()
       expect(editor.screenAspect).toBeCloseTo(pixelAspect('pal'), 5)
+    })
+
+    it('refitScreen hands the scale back to auto-fit', () => {
+      // Manual zoom was a one-way door: nothing but another project cleared it,
+      // so a fitted 1.4× could not be returned to once you pressed ±.
+      const { editor } = setup()
+      editor.zoomScreen(1)
+      expect(editor.screenZoomedManually).toBe(true)
+      editor.refitScreen()
+      expect(editor.screenZoomedManually).toBe(false)
     })
 
     it('reset clears the manual-zoom flag so the next project auto-fits', () => {

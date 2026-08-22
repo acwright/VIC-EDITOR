@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, useTemplateRef, watchEffect } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, useTemplateRef, watchEffect } from 'vue'
 import { cellColorHexes, colorHex } from '@/domain/colors'
 import { CELL_SCREEN_WIDTH, cellShape, isCharMulticolor } from '@/domain/modes'
 import { drawCell } from '@/utils/screenRender'
@@ -25,7 +25,7 @@ const props = withDefaults(
 const projects = useProjectsStore()
 const editor = useEditorStore()
 
-const COLUMNS = 8
+const MIN_COLUMNS = 8
 /**
  * Widest a glyph gets in the width-fitted view. Without it a wide column
  * stretches eight glyphs across it at ten times life size, which is a lot of
@@ -34,11 +34,55 @@ const COLUMNS = 8
 const MAX_CELL_PX = 48
 const SCALE = 3
 
-const rows = computed(() => Math.ceil(props.count / COLUMNS))
+const root = useTemplateRef('root')
+const availableWidth = ref(0)
+
+/**
+ * Columns double — 8, 16, 32 — rather than filling with whatever number fits.
+ * A row then holds a whole number of the 8-character groups the character set
+ * is read in, so the $x0 column of the code map still lines up. The step
+ * happens where the cells would otherwise grow past MAX_CELL_PX, which puts
+ * every cell in (MAX_CELL_PX / 2, MAX_CELL_PX].
+ */
+const columns = computed(() => {
+  if (props.fit !== 'width' || !availableWidth.value) return MIN_COLUMNS
+  let count = MIN_COLUMNS
+  while (count * 2 <= props.count && availableWidth.value / count > MAX_CELL_PX) count *= 2
+  return count
+})
+
+// The width-fitted grid fills its column, so its own box is what to measure —
+// it carries no max-width that could feed a narrower answer back into this.
+let observer: ResizeObserver | undefined
+let pending = 0
+onMounted(() => {
+  if (props.fit !== 'width' || !root.value) return
+  observer = new ResizeObserver(([entry]) => {
+    // Width only: the height is this component's own output — the column count
+    // sets the number of rows — so reacting to it would be chasing itself.
+    const width = entry?.contentRect.width ?? 0
+    if (width === availableWidth.value) return
+    // Applied on the next frame rather than inside the delivery: changing the
+    // column count relays out the grid, and a layout change made while
+    // observations are being delivered is what Chromium reports as
+    // "ResizeObserver loop completed with undelivered notifications".
+    cancelAnimationFrame(pending)
+    pending = requestAnimationFrame(() => {
+      availableWidth.value = width
+    })
+  })
+  observer.observe(root.value)
+})
+onBeforeUnmount(() => {
+  cancelAnimationFrame(pending)
+  observer?.disconnect()
+})
+
+const rows = computed(() => Math.ceil(props.count / columns.value))
 
 /** Cell height follows the project's char height (8 or 16 rows). */
 const cellHeight = computed(() => projects.current?.settings.charHeight ?? 8)
-const logicalWidth = COLUMNS * CELL_SCREEN_WIDTH
+const logicalWidth = computed(() => columns.value * CELL_SCREEN_WIDTH)
 const logicalHeight = computed(() => rows.value * cellHeight.value)
 
 const canvas = useTemplateRef('canvas')
@@ -50,7 +94,7 @@ watchEffect(
     const ctx = canvas.value?.getContext('2d')
     if (!project || !ctx) return
     ctx.fillStyle = colorHex(project.settings.screenColor)
-    ctx.fillRect(0, 0, logicalWidth, logicalHeight.value)
+    ctx.fillRect(0, 0, logicalWidth.value, logicalHeight.value)
     for (let i = 0; i < props.count; i++) {
       const code = props.startCode + i
       const pattern = project.charset[code]
@@ -63,8 +107,8 @@ watchEffect(
         pattern,
         shape,
         colors,
-        (i % COLUMNS) * CELL_SCREEN_WIDTH,
-        Math.floor(i / COLUMNS) * shape.height,
+        (i % columns.value) * CELL_SCREEN_WIDTH,
+        Math.floor(i / columns.value) * shape.height,
       )
     }
   },
@@ -74,10 +118,10 @@ watchEffect(
 function onPointerDown(event: PointerEvent) {
   // The canvas scales with the viewport — derive cell size from its rendered rect
   const rect = (event.currentTarget as HTMLElement).getBoundingClientRect()
-  const col = Math.floor(((event.clientX - rect.left) / rect.width) * COLUMNS)
+  const col = Math.floor(((event.clientX - rect.left) / rect.width) * columns.value)
   const row = Math.floor(((event.clientY - rect.top) / rect.height) * rows.value)
-  if (col < 0 || col >= COLUMNS || row < 0 || row >= rows.value) return
-  const index = row * COLUMNS + col
+  if (col < 0 || col >= columns.value || row < 0 || row >= rows.value) return
+  const index = row * columns.value + col
   if (index >= props.count) return
   editor.selectChar(props.startCode + index)
 }
@@ -101,10 +145,10 @@ function onKeydown(event: KeyboardEvent) {
       next = index + 1
       break
     case 'ArrowUp':
-      next = index - COLUMNS
+      next = index - columns.value
       break
     case 'ArrowDown':
-      next = index + COLUMNS
+      next = index + columns.value
       break
     case 'Home':
       next = 0
@@ -134,14 +178,14 @@ const gridStyle = computed(() => ({
   backgroundImage:
     'linear-gradient(to right, rgb(255 255 255 / 0.14) 1px, transparent 1px), ' +
     'linear-gradient(to bottom, rgb(255 255 255 / 0.14) 1px, transparent 1px)',
-  backgroundSize: `${100 / COLUMNS}% ${100 / rows.value}%`,
+  backgroundSize: `${100 / columns.value}% ${100 / rows.value}%`,
 }))
 
 function cellRect(index: number) {
   return {
-    left: `${((index % COLUMNS) / COLUMNS) * 100}%`,
-    top: `${(Math.floor(index / COLUMNS) / rows.value) * 100}%`,
-    width: `${100 / COLUMNS}%`,
+    left: `${((index % columns.value) / columns.value) * 100}%`,
+    top: `${(Math.floor(index / columns.value) / rows.value) * 100}%`,
+    width: `${100 / columns.value}%`,
     height: `${100 / rows.value}%`,
   }
 }
@@ -170,12 +214,9 @@ const multicolorBadges = computed(() => {
        Width-driven: fills the column, as tall as the glyphs make it. -->
   <div
     class="relative rounded-sm border border-ink-700"
-    :class="fit === 'height' ? 'h-full min-h-32 w-fit' : 'mx-auto w-full'"
-    :style="
-      fit === 'height'
-        ? { maxHeight: `${logicalHeight * SCALE}px` }
-        : { maxWidth: `${COLUMNS * MAX_CELL_PX}px` }
-    "
+    ref="root"
+    :class="fit === 'height' ? 'h-full min-h-32 w-fit' : 'w-full'"
+    :style="fit === 'height' ? { maxHeight: `${logicalHeight * SCALE}px` } : undefined"
   >
     <canvas
       ref="canvas"

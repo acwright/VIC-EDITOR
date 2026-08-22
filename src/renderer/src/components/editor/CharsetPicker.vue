@@ -81,13 +81,15 @@ watch([() => editor.selectedChar, view], ([code]) => {
   <section class="flex min-h-64 flex-1 flex-col gap-2 pb-4" aria-label="Character set picker">
     <div class="flex items-center gap-2">
       <h2 class="text-xl">Character Set</h2>
-      <div class="ml-auto flex items-center gap-1">
+      <!-- Wraps rather than overflowing: eight buttons at a coarse pointer's
+           40px are wider than a 320px phone's column -->
+      <div class="ml-auto flex flex-wrap items-center justify-end gap-1">
         <!-- Layout: which of the three arrangements suits this window -->
         <div class="flex gap-1" role="radiogroup" aria-label="Character set layout">
           <AppTooltip
             v-for="option in CHARSET_VIEWS"
             :key="option.view"
-            :label="option.hint"
+            :label="option.label"
             placement="bottom"
           >
             <button
@@ -100,7 +102,7 @@ watch([() => editor.selectedChar, view], ([code]) => {
               "
               role="radio"
               :aria-checked="view === option.view"
-              :aria-label="option.hint"
+              :aria-label="option.label"
               @click="setView(option.view)"
             >
               <component :is="VIEW_ICONS[option.view]" class="size-4" />
@@ -137,7 +139,15 @@ watch([() => editor.selectedChar, view], ([code]) => {
     </div>
 
     <!-- Grid: eight a row at the column's width, running as tall as it needs -->
-    <div v-else-if="view === 'grid'" ref="scroller" class="min-h-0 flex-1 overflow-y-auto">
+    <!-- scrollbar-gutter keeps the scroller's content width independent of its
+         content height. Without it the grid's column count and its scrollbar
+         chase each other: more columns means fewer rows, which removes the
+         scrollbar, which widens the box the columns were measured from. -->
+    <div
+      v-else-if="view === 'grid'"
+      ref="scroller"
+      class="min-h-0 flex-1 overflow-y-auto [scrollbar-gutter:stable]"
+    >
       <CharsetGrid :start-code="0" :count="charCount" fit="width" />
     </div>
 

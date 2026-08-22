@@ -21,9 +21,10 @@ share as a single self-contained link.
   wrapping shifts in four directions, horizontal and vertical flips, and
   rotation — every one of them undoable.
 - **Character set.** 64, 128 or 256 characters, shown as scaled blocks, as a
-  scrolling grid of eight a row, or as a list with each character's code and
-  whether its slot is still blank — whichever suits the window, remembered per
-  browser. New projects seed from the VIC-20 ROM font rather than from nothing.
+  scrolling grid that fills the width with 8, 16 or 32 a row, or as a list with
+  each character's code and whether its slot is still blank — whichever suits
+  the window, remembered per browser, and starting in the grid on a phone. New
+  projects seed from the VIC-20 ROM font rather than from nothing.
 - **Screen editor.** Paint characters and color RAM onto a 22 × 23 screen at
   1×–8× zoom, resize it to anything the chip can show, and keep as many named
   screens in a project as you like. The brush writes the character, its color

@@ -86,15 +86,17 @@ const charLabel = computed(() => {
 <template>
   <section
     v-if="editor.currentPattern"
-    class="flex w-fit flex-col gap-3"
+    class="flex w-full flex-col gap-3 lg:w-fit"
     aria-label="Character editor"
   >
     <!-- Whole-character actions sit in the header beside the stepper: they were
          a row of their own under the palette, and that row is a band of the
          character set below. -->
-    <div class="flex items-center justify-between gap-2">
+    <div class="flex flex-wrap items-center justify-between gap-2">
       <h2 class="text-xl">Character</h2>
-      <div class="flex items-center gap-1.5">
+      <!-- ml-auto keeps the controls right-aligned on the line of their own they
+           take on a phone, where they and the heading don't fit side by side -->
+      <div class="ml-auto flex flex-wrap items-center justify-end gap-1.5">
         <div class="flex gap-1">
           <AppButton
             label="Fill"
@@ -141,132 +143,141 @@ const charLabel = computed(() => {
       </div>
     </div>
 
-    <!-- Directional transforms frame the grid: shifts on each side,
-         rotates flanking shift-up, flips flanking shift-down.
-         mx-auto keeps the editor centerd if anything below it ends up wider. -->
-    <div class="mx-auto grid w-fit grid-cols-[auto_auto_auto] items-center gap-2">
-      <AppButton
-        :label="transformLabel('rotateLeft', 'Rotate Left')"
-        :shortcut="shortcutLabel('rotateLeft')"
-        :disabled="!editor.transformEnabled('rotateLeft', shape)"
-        @click="editor.applyTransform('rotateLeft')"
-      >
-        <RotateCcw class="size-4" />
-      </AppButton>
-      <div class="flex justify-center">
+    <!-- The editor stack keeps its own width and centres in the column, while
+         the heading row above spans it: that is the shape of the picker below,
+         whose title sits at the column's left edge and whose grid is centred. -->
+    <div class="mx-auto flex w-fit flex-col gap-3">
+      <!-- Directional transforms frame the grid: shifts on each side,
+           rotates flanking shift-up, flips flanking shift-down.
+           mx-auto keeps the editor centerd if anything below it ends up wider. -->
+      <div class="mx-auto grid w-fit grid-cols-[auto_auto_auto] items-center gap-2">
         <AppButton
-          label="Shift Up"
-          :shortcut="shortcutLabel('shiftUp')"
-          @click="editor.applyTransform('shiftUp')"
+          :label="transformLabel('rotateLeft', 'Rotate Left')"
+          :shortcut="shortcutLabel('rotateLeft')"
+          :disabled="!editor.transformEnabled('rotateLeft', shape)"
+          @click="editor.applyTransform('rotateLeft')"
         >
-          <ArrowUp class="size-4" />
+          <RotateCcw class="size-4" />
         </AppButton>
-      </div>
-      <div class="flex justify-end">
-        <AppButton
-          :label="transformLabel('rotateRight', 'Rotate Right')"
-          :shortcut="shortcutLabel('rotateRight')"
-          :disabled="!editor.transformEnabled('rotateRight', shape)"
-          @click="editor.applyTransform('rotateRight')"
-        >
-          <RotateCw class="size-4" />
-        </AppButton>
-      </div>
+        <div class="flex justify-center">
+          <AppButton
+            label="Shift Up"
+            :shortcut="shortcutLabel('shiftUp')"
+            @click="editor.applyTransform('shiftUp')"
+          >
+            <ArrowUp class="size-4" />
+          </AppButton>
+        </div>
+        <div class="flex justify-end">
+          <AppButton
+            :label="transformLabel('rotateRight', 'Rotate Right')"
+            :shortcut="shortcutLabel('rotateRight')"
+            :disabled="!editor.transformEnabled('rotateRight', shape)"
+            @click="editor.applyTransform('rotateRight')"
+          >
+            <RotateCw class="size-4" />
+          </AppButton>
+        </div>
 
-      <AppButton
-        label="Shift Left"
-        :shortcut="shortcutLabel('shiftLeft')"
-        @click="editor.applyTransform('shiftLeft')"
-      >
-        <ArrowLeft class="size-4" />
-      </AppButton>
-      <!-- Centerd so the shift buttons keep their places as the box narrows -->
-      <div class="flex justify-center">
-        <div :style="editorStyle">
-          <PixelEditor
-            v-if="shape"
-            :values="values"
-            :shape="shape"
-            :palette="palette"
-            :active-value="editor.activeValue"
-            :background-value="editor.backgroundValue"
-            @stroke-start="editor.beginStroke('Draw')"
-            @paint="(x, y, value) => editor.paintPixel(x, y, value)"
-            @stroke-end="editor.endStroke()"
-          />
+        <AppButton
+          label="Shift Left"
+          :shortcut="shortcutLabel('shiftLeft')"
+          @click="editor.applyTransform('shiftLeft')"
+        >
+          <ArrowLeft class="size-4" />
+        </AppButton>
+        <!-- Centerd so the shift buttons keep their places as the box narrows -->
+        <div class="flex min-w-0 justify-center">
+          <!-- max-w-full is what lets w-fit above clamp to a phone: the rem width
+               alone pinned the row wider than the screen and the shift and flip
+               buttons went under the edge, with the column's overflow-x-hidden
+               leaving no way to scroll to them -->
+          <div class="max-w-full min-w-0" :style="editorStyle">
+            <PixelEditor
+              v-if="shape"
+              :values="values"
+              :shape="shape"
+              :palette="palette"
+              :active-value="editor.activeValue"
+              :background-value="editor.backgroundValue"
+              @stroke-start="editor.beginStroke('Draw')"
+              @paint="(x, y, value) => editor.paintPixel(x, y, value)"
+              @stroke-end="editor.endStroke()"
+            />
+          </div>
+        </div>
+        <div class="flex justify-end">
+          <AppButton
+            label="Shift Right"
+            :shortcut="shortcutLabel('shiftRight')"
+            @click="editor.applyTransform('shiftRight')"
+          >
+            <ArrowRight class="size-4" />
+          </AppButton>
+        </div>
+
+        <AppButton
+          label="Flip Horizontal"
+          :shortcut="shortcutLabel('flipH')"
+          @click="editor.applyTransform('flipH')"
+        >
+          <FlipHorizontal2 class="size-4" />
+        </AppButton>
+        <div class="flex justify-center">
+          <AppButton
+            label="Shift Down"
+            :shortcut="shortcutLabel('shiftDown')"
+            @click="editor.applyTransform('shiftDown')"
+          >
+            <ArrowDown class="size-4" />
+          </AppButton>
+        </div>
+        <div class="flex justify-end">
+          <AppButton
+            label="Flip Vertical"
+            :shortcut="shortcutLabel('flipV')"
+            @click="editor.applyTransform('flipV')"
+          >
+            <FlipVertical2 class="size-4" />
+          </AppButton>
         </div>
       </div>
-      <div class="flex justify-end">
-        <AppButton
-          label="Shift Right"
-          :shortcut="shortcutLabel('shiftRight')"
-          @click="editor.applyTransform('shiftRight')"
-        >
-          <ArrowRight class="size-4" />
-        </AppButton>
+
+      <!-- `mixed` only: the character's own rendering, color RAM bit 3 (D2).
+           The explanation is a hint rather than a standing line: it is read once,
+           and a line of it here is a line off the character set below. -->
+      <div v-if="perCharMode" class="flex items-center gap-1.5">
+        <span class="font-display text-base tracking-wider text-ink-300">Renders as</span>
+        <AppHint
+          text="Switching re-reads the same bytes — 8 one-bit pixels or 4 two-bit ones. Nothing is rewritten."
+        />
+        <div class="ml-auto flex gap-1" role="radiogroup" aria-label="Character rendering">
+          <button
+            v-for="option in [
+              { multicolor: false, label: 'Hires' },
+              { multicolor: true, label: 'Multicolor' },
+            ]"
+            :key="option.label"
+            type="button"
+            class="font-display rounded-sm border px-2 py-1 text-sm tracking-wider transition-colors"
+            :class="
+              editor.currentMulticolor === option.multicolor
+                ? 'border-ink-300 bg-ink-100 text-ink-950'
+                : 'border-ink-700 bg-ink-850 text-ink-300 hover:border-ink-500'
+            "
+            role="radio"
+            :aria-checked="editor.currentMulticolor === option.multicolor"
+            :aria-label="`Render as ${option.label}`"
+            @click="editor.setCharMode(editor.selectedChar, option.multicolor)"
+          >
+            {{ option.label }}
+          </button>
+        </div>
       </div>
 
-      <AppButton
-        label="Flip Horizontal"
-        :shortcut="shortcutLabel('flipH')"
-        @click="editor.applyTransform('flipH')"
-      >
-        <FlipHorizontal2 class="size-4" />
-      </AppButton>
-      <div class="flex justify-center">
-        <AppButton
-          label="Shift Down"
-          :shortcut="shortcutLabel('shiftDown')"
-          @click="editor.applyTransform('shiftDown')"
-        >
-          <ArrowDown class="size-4" />
-        </AppButton>
-      </div>
-      <div class="flex justify-end">
-        <AppButton
-          label="Flip Vertical"
-          :shortcut="shortcutLabel('flipV')"
-          @click="editor.applyTransform('flipV')"
-        >
-          <FlipVertical2 class="size-4" />
-        </AppButton>
-      </div>
+      <ColorPicker />
+
+      <CharBytesBox :bytes="editor.currentPattern" />
     </div>
-
-    <!-- `mixed` only: the character's own rendering, color RAM bit 3 (D2).
-         The explanation is a hint rather than a standing line: it is read once,
-         and a line of it here is a line off the character set below. -->
-    <div v-if="perCharMode" class="flex items-center gap-1.5">
-      <span class="font-display text-base tracking-wider text-ink-300">Renders as</span>
-      <AppHint
-        text="Switching re-reads the same bytes — 8 one-bit pixels or 4 two-bit ones. Nothing is rewritten."
-      />
-      <div class="ml-auto flex gap-1" role="radiogroup" aria-label="Character rendering">
-        <button
-          v-for="option in [
-            { multicolor: false, label: 'Hires' },
-            { multicolor: true, label: 'Multicolor' },
-          ]"
-          :key="option.label"
-          type="button"
-          class="font-display rounded-sm border px-2 py-1 text-sm tracking-wider transition-colors"
-          :class="
-            editor.currentMulticolor === option.multicolor
-              ? 'border-ink-300 bg-ink-100 text-ink-950'
-              : 'border-ink-700 bg-ink-850 text-ink-300 hover:border-ink-500'
-          "
-          role="radio"
-          :aria-checked="editor.currentMulticolor === option.multicolor"
-          :aria-label="`Render as ${option.label}`"
-          @click="editor.setCharMode(editor.selectedChar, option.multicolor)"
-        >
-          {{ option.label }}
-        </button>
-      </div>
-    </div>
-
-    <ColorPicker />
-
-    <CharBytesBox :bytes="editor.currentPattern" />
   </section>
 </template>

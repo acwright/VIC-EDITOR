@@ -114,17 +114,33 @@ describe('ProjectManagerView', () => {
       expect(wrapper.findComponent({ name: 'NewProjectDialog' }).props('modelValue')).toBe(true)
     })
 
-    it('breaks each row onto two lines below sm, and one from sm up', async () => {
+    it('breaks each row onto two lines below lg, and one from lg up', async () => {
+      // Not sm: the date and five fixed-width actions need ~360px of the row,
+      // which left the name 46px at 640px.
       const { wrapper } = mountView(() =>
         createRepository().save(createProject({ seed: 'blank', name: 'Row', type: 'hires' })),
       )
       await flushPromises()
       const row = wrapper.get('li')
-      // The name button and the metadata each claim the full width, until sm
+      // The name button and the metadata each claim the full width, until lg
       for (const part of [row.get('button'), row.get('button + div')]) {
         expect(part.classes()).toContain('basis-full')
-        expect(part.classes().some((name) => name.startsWith('sm:basis-'))).toBe(true)
+        expect(part.classes().some((name) => name.startsWith('lg:basis-'))).toBe(true)
       }
+    })
+
+    it('wraps the actions under the date rather than truncating it', async () => {
+      // The actions cannot shrink, so on a phone the date was the only thing
+      // that could give and it lost its time to an ellipsis.
+      const { wrapper } = mountView(() =>
+        createRepository().save(createProject({ seed: 'blank', name: 'Row', type: 'hires' })),
+      )
+      await flushPromises()
+      const meta = wrapper.get('li button + div')
+      expect(meta.classes()).toContain('flex-wrap')
+      const date = meta.get(':scope > span:last-of-type')
+      expect(date.classes()).toContain('whitespace-nowrap')
+      expect(date.classes()).not.toContain('truncate')
     })
   })
 })

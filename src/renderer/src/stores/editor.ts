@@ -204,14 +204,38 @@ export const useEditorStore = defineStore('editor', () => {
     aspectCorrected.value ? pixelAspect(projects.current?.settings.video ?? 'ntsc') : 1,
   )
 
-  function zoomScreen(delta: number): void {
-    screenZoomedManually.value = true
-    screenScale.value = Math.max(1, Math.min(8, screenScale.value + delta))
+  /**
+   * Back to the scale the viewport can show, and to re-fitting on every resize.
+   * Manual zoom is otherwise a one-way door: nothing but opening another project
+   * cleared the flag, so a fitted 1.4× was unreachable once you pressed ±.
+   */
+  function refitScreen(): void {
+    screenZoomedManually.value = false
   }
 
-  /** Auto-fit path — sets the scale without marking it manual. */
+  // Stepping from a fitted scale snaps to whole numbers first: from a 1.47 fit,
+  // zoom in means 2×, not 2.47×.
+  function zoomScreen(delta: number): void {
+    screenZoomedManually.value = true
+    const from = delta > 0 ? Math.floor(screenScale.value) : Math.ceil(screenScale.value)
+    screenScale.value = Math.max(1, Math.min(8, from + delta))
+  }
+
+  /**
+   * Auto-fit path — sets the scale without marking it manual. Deliberately *not* whole-numbered: flooring left a 1.47 fit
+   * showing at 1×, which on a phone is the screen in two thirds of the width it
+   * had and a third of the height. The canvas is one logical pixel per screen
+   * pixel scaled by CSS with `image-rendering: pixelated`, and painting, the
+   * grid and the cursor all work off ratios of the element's box, so a
+   * fractional scale costs nothing but evenness in the upscale.
+   *
+   * Rounded *down*: rounding to the nearest hundredth can round up, which makes
+   * the canvas a fraction of a pixel wider than the space measured for it. In a
+   * scrolling viewport that fraction is a scrollbar, the scrollbar changes the
+   * measurement, and the next fit undoes it — the ResizeObserver oscillates.
+   */
   function fitScreenScale(value: number): void {
-    screenScale.value = Math.max(1, Math.min(8, Math.floor(value)))
+    screenScale.value = Math.max(1, Math.min(8, Math.floor(value * 100) / 100))
   }
 
   function toggleGrid(): void {
@@ -851,6 +875,7 @@ export const useEditorStore = defineStore('editor', () => {
     setCharMode,
     zoomScreen,
     fitScreenScale,
+    refitScreen,
     toggleGrid,
     toggleAspect,
     setBrushMode,
