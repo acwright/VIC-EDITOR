@@ -1,7 +1,12 @@
 import { app, shell, BrowserWindow, Menu, type MenuItemConstructorOptions } from 'electron'
 import { is } from '@electron-toolkit/utils'
 import { IPC } from '../shared/ipc'
-import { EMPTY_MENU_CONTEXT, MENU_ACTIONS, type MenuContext, type MenuSection } from '../shared/menu'
+import {
+  EMPTY_MENU_CONTEXT,
+  MENU_ACTIONS,
+  type MenuContext,
+  type MenuSection,
+} from '../shared/menu'
 
 const PRODUCT_NAME = 'VIC-20 Editor'
 const REPO_URL = 'https://github.com/acwright/VIC-EDITOR'
