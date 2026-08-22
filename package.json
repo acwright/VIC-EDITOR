@@ -1,6 +1,6 @@
 {
   "name": "vic20-editor",
-  "version": "1.6.0",
+  "version": "1.6.1",
   "private": true,
   "type": "module",
   "description": "Character set and screen editor for the Commodore VIC-20 and its MOS 6560/6561 video chip",
