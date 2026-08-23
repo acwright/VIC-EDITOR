@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { AppApi, SaveFileRequest } from '@shared/api'
 import { downloadBytes, downloadCanvasPng, downloadText } from '../download'
+import { stubApi } from './stubApi'
 
 /** Every anchor download the module triggered, in order. */
 let clicks: { href: string; download: string }[] = []
@@ -9,13 +10,7 @@ let saves: SaveFileRequest[] = []
 
 /** Install a bridge whose save dialog records and resolves to a path. */
 function installBridge(result: string | null = '/Users/test/Downloads/out.bin') {
-  const api = {
-    app: {
-      getVersion: () => Promise.resolve('1.0.0'),
-      platform: 'darwin',
-      onBeforeQuit: () => () => {},
-      saveComplete: () => {},
-    },
+  const api = stubApi({
     files: {
       save: (request: SaveFileRequest) => {
         saves.push(request)
@@ -23,8 +18,7 @@ function installBridge(result: string | null = '/Users/test/Downloads/out.bin') 
       },
       openText: () => Promise.resolve(null),
     },
-    menu: { setContext: () => {}, onAction: () => () => {} },
-  } satisfies AppApi
+  })
   ;(window as Window & { api?: AppApi }).api = api
   return api
 }

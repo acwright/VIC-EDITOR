@@ -35,6 +35,50 @@ export interface ProjectLibrary extends ProjectStore {
 }
 
 /**
+ * The extra surface a *document* needs. Desktop build only.
+ *
+ * The mirror of `ProjectLibrary`: where the browser's extra jobs are about a
+ * *list*, these are about the one file the app has open. Creating and opening
+ * are here rather than on the port because they are the operations that reach
+ * a dialog, and the browser has no answer for them.
+ *
+ * Nothing here takes or returns a path. `name` is what the header shows and
+ * `defaultLocation` is what the New dialog displays; the file itself stays in
+ * the main process (D8).
+ */
+export interface DocumentStore extends ProjectStore {
+  readonly kind: 'document'
+  /**
+   * The open document's display name, or `null` when none is open. A plain
+   * getter, refreshed by every call below — the Pinia store copies it into a
+   * ref after each `await`, which is what makes it reactive on screen.
+   */
+  readonly name: string | null
+  /** Write `project` into the current location as a new document (D10). */
+  createDocument(project: Project): Promise<Project | null>
+  /** Run an Open dialog and adopt what was chosen; `null` if cancelled. */
+  openDocument(): Promise<Project | null>
+  /** Forget the open document. Writes nothing. */
+  closeDocument(): Promise<void>
+  /** Where a new document would go, for the New dialog's location row (D10). */
+  defaultLocation(): Promise<string>
+  /** Ask for another location; `null` if the user cancelled. */
+  chooseLocation(): Promise<string | null>
+}
+
+/**
+ * A document operation failed, with the reason main gave. Distinct from
+ * `MissingProjectError`: this is "the disk said no", which the Pinia store
+ * turns into `lastError` for the view to show.
+ */
+export class DocumentError extends Error {
+  constructor(reason: string) {
+    super(reason)
+    this.name = 'DocumentError'
+  }
+}
+
+/**
  * A project the store was asked to act on is not there. Callers that read a
  * project (`load`) get `null` instead; this is for the operations that cannot
  * carry on without one, so the Pinia store has something to catch and turn

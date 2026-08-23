@@ -1,6 +1,12 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import { IPC } from '../shared/ipc'
 import type { AppApi, OpenFileRequest, OpenedTextFile, SaveFileRequest } from '../shared/api'
+import type {
+  CreateDocumentRequest,
+  DocumentResult,
+  DocumentStamp,
+  OpenDocument,
+} from '../shared/document'
 import type { MenuContext } from '../shared/menu'
 
 const api: AppApi = {
@@ -23,6 +29,20 @@ const api: AppApi = {
       ipcRenderer.invoke(IPC.FILE_SAVE, request),
     openText: (request: OpenFileRequest): Promise<OpenedTextFile | null> =>
       ipcRenderer.invoke(IPC.FILE_OPEN_TEXT, request),
+  },
+  // Every call writes to, or reads, whatever document main has open — none of
+  // them names a file, which is what D8 asks of this side of the bridge.
+  document: {
+    create: (request: CreateDocumentRequest): Promise<DocumentResult<OpenDocument>> =>
+      ipcRenderer.invoke(IPC.DOCUMENT_CREATE, request),
+    open: (): Promise<DocumentResult<OpenDocument>> => ipcRenderer.invoke(IPC.DOCUMENT_OPEN),
+    current: (): Promise<DocumentResult<OpenDocument>> => ipcRenderer.invoke(IPC.DOCUMENT_CURRENT),
+    write: (text: string): Promise<DocumentResult<DocumentStamp>> =>
+      ipcRenderer.invoke(IPC.DOCUMENT_WRITE, text),
+    close: (): Promise<void> => ipcRenderer.invoke(IPC.DOCUMENT_CLOSE),
+    reveal: (): Promise<void> => ipcRenderer.invoke(IPC.DOCUMENT_REVEAL),
+    defaultLocation: (): Promise<string> => ipcRenderer.invoke(IPC.DOCUMENT_DEFAULT_LOCATION),
+    chooseLocation: (): Promise<string | null> => ipcRenderer.invoke(IPC.DOCUMENT_CHOOSE_LOCATION),
   },
   menu: {
     setContext: (context: MenuContext): void => {

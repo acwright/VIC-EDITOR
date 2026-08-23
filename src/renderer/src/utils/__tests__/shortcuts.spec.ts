@@ -163,8 +163,14 @@ describe('README', () => {
   it('carries a row for every shortcut', () => {
     for (const shortcut of [...EDITOR_SHORTCUTS, ...CANVAS_SHORTCUTS, ...MANAGER_SHORTCUTS]) {
       const keys = shortcut.keys.map((key) => `\`${keyText(key)}\``).join(' / ')
-      const documented = rows.some((row) => row[0] === keys && row[1] === shortcut.description)
-      expect(documented, `${shortcut.action} (${keys}) is undocumented`).toBe(true)
+      // A key worded differently on the desktop owns a second row (D14).
+      for (const description of [shortcut.description, shortcut.desktopDescription]) {
+        if (!description) continue
+        const documented = rows.some((row) => row[0] === keys && row[1] === description)
+        expect(documented, `${shortcut.action} (${keys}) is undocumented: ${description}`).toBe(
+          true,
+        )
+      }
     }
   })
 })

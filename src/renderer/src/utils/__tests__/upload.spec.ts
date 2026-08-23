@@ -1,19 +1,14 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { AppApi, OpenFileRequest, OpenedTextFile } from '@shared/api'
 import { pickProjectFile } from '../upload'
+import { stubApi } from './stubApi'
 
 /** Every open request the stubbed bridge received. */
 let opens: OpenFileRequest[] = []
 
 /** Install a bridge whose open dialog records and resolves to `result`. */
 function installBridge(result: OpenedTextFile | null) {
-  const api = {
-    app: {
-      getVersion: () => Promise.resolve('1.0.0'),
-      platform: 'darwin',
-      onBeforeQuit: () => () => {},
-      saveComplete: () => {},
-    },
+  const api = stubApi({
     files: {
       save: () => Promise.resolve(null),
       openText: (request: OpenFileRequest) => {
@@ -21,8 +16,7 @@ function installBridge(result: OpenedTextFile | null) {
         return Promise.resolve(result)
       },
     },
-    menu: { setContext: () => {}, onAction: () => () => {} },
-  } satisfies AppApi
+  })
   ;(window as Window & { api?: AppApi }).api = api
 }
 

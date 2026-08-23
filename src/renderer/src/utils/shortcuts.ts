@@ -11,9 +11,24 @@
  * Key tokens are `event.key` values with optional `Shift+`, `Mod+` and `Alt+`
  * prefixes, in that order. `Mod` is Ctrl on Windows/Linux and Cmd on Apple
  * platforms — the same key under both names, as every other editor spells it.
+ *
+ * The *wording* is shell-aware: the two shells are not the same app, and on the
+ * desktop there is no project list to go back to, so Escape closes the document
+ * (D14). The key and the action id are unchanged — only what they are called is
+ * — and `shell()` answers that question once, here, so no component branches on
+ * the shell.
  */
 
+import { isDesktop } from './desktop'
 import { isMac } from './platform'
+
+/** Which shell is running. The desktop edits documents; the browser, a list. */
+export type Shell = 'browser' | 'desktop'
+
+/** The running shell. Read at call time, so a test can stub `window.api`. */
+export function shell(): Shell {
+  return isDesktop() ? 'desktop' : 'browser'
+}
 
 /** Everything the editor view acts on. */
 export type EditorAction =
@@ -58,8 +73,20 @@ export interface Shortcut<A extends string = string> {
   keys: readonly string[]
   /** Imperative description, as shown in the help dialog and the README. */
   description: string
+  /**
+   * The description in the desktop shell, for the handful of keys that act on
+   * a *document* rather than on a list (D14).
+   */
+  desktopDescription?: string
   /** Section heading, in `GROUP_ORDER`. */
   group: string
+}
+
+/** The description a shortcut carries in this shell. */
+export function describeShortcut(shortcut: Shortcut): string {
+  return shell() === 'desktop' && shortcut.desktopDescription
+    ? shortcut.desktopDescription
+    : shortcut.description
 }
 
 export const EDITOR_SHORTCUTS: readonly Shortcut<EditorAction>[] = [
@@ -67,7 +94,14 @@ export const EDITOR_SHORTCUTS: readonly Shortcut<EditorAction>[] = [
   { action: 'redo', keys: ['Shift+Mod+Z'], description: 'Redo', group: 'Project' },
   { action: 'save', keys: ['Mod+S'], description: 'Save now', group: 'Project' },
   { action: 'help', keys: ['?'], description: 'Keyboard shortcuts', group: 'Project' },
-  { action: 'back', keys: ['Escape'], description: 'Back to the project list', group: 'Project' },
+  {
+    action: 'back',
+    keys: ['Escape'],
+    description: 'Back to the project list',
+    // There is no list on the desktop; the OS is the project list (§4).
+    desktopDescription: 'Close the document',
+    group: 'Project',
+  },
 
   { action: 'prevChar', keys: ['['], description: 'Previous character', group: 'Character' },
   { action: 'nextChar', keys: [']'], description: 'Next character', group: 'Character' },

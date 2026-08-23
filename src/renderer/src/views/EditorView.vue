@@ -11,7 +11,7 @@ import ScreenPanel from '@/components/editor/ScreenPanel.vue'
 import { MODES } from '@/domain/modes'
 import { useEditorStore } from '@/stores/editor'
 import { useProjectsStore } from '@/stores/projects'
-import { editorMenuContext, onMenuAction, reportMenuContext } from '@/utils/menu'
+import { actionLabel, editorMenuContext, onMenuAction, reportMenuContext } from '@/utils/menu'
 import { matchEditorShortcut, shortcutLabel, type EditorAction } from '@/utils/shortcuts'
 
 const props = defineProps<{ projectId: string }>()
@@ -45,6 +45,23 @@ watch(
 onBeforeUnmount(() => void store.close())
 
 const SAVE_STATE_LABEL = { saved: 'Saved', saving: 'Saving…', unsaved: 'Unsaved' } as const
+
+/**
+ * What the header shows the open project as.
+ *
+ * On the desktop that is the *file's* name — a document is called what its file
+ * is called, and the header is the only place that says so now that no list
+ * view carries it. In the browser `documentName` is null and the project's own
+ * name stands, exactly as before. A fallback, not a branch on the shell.
+ */
+const title = computed(() => store.documentName ?? store.current?.name ?? '')
+
+/**
+ * "Back to Projects" in the browser, "Close Document" on the desktop (D14).
+ * Taken from the menu table rather than written here, so this button and its
+ * File menu item cannot end up saying different things.
+ */
+const backLabel = computed(() => actionLabel('back'))
 
 const showSettings = ref(false)
 const showHelp = ref(false)
@@ -144,7 +161,7 @@ const saveError = computed(() => store.lastError)
   <div class="flex h-dvh flex-col">
     <header class="flex h-12 shrink-0 items-center gap-3 border-b border-ink-800 bg-ink-900 px-3">
       <AppButton
-        label="Back to Projects"
+        :label="backLabel"
         :shortcut="shortcutLabel('back')"
         placement="bottom"
         @click="router.push('/')"
@@ -152,7 +169,7 @@ const saveError = computed(() => store.lastError)
         <ArrowLeft class="size-4" />
       </AppButton>
       <template v-if="store.current">
-        <h1 class="truncate text-2xl">{{ store.current.name }}</h1>
+        <h1 class="truncate text-2xl">{{ title }}</h1>
         <span
           class="shrink-0 rounded-xs border border-ink-600 px-1.5 py-0.5 text-[10px] tracking-wider text-ink-300 uppercase"
         >
@@ -256,14 +273,18 @@ const saveError = computed(() => store.lastError)
       <div class="flex flex-col items-center gap-4 text-center">
         <div>
           <p class="font-display text-2xl tracking-wider">This project could not be opened</p>
-          <p class="text-sm">It may have been deleted, or this link is stale.</p>
+          <!-- The banner above carries the reason when there is one to give —
+               a file that moved, or one that is not a project (Phase F3). -->
+          <p class="text-sm">
+            {{ store.lastError ?? 'It may have been deleted, or this link is stale.' }}
+          </p>
         </div>
         <button
           type="button"
           class="font-display rounded-sm border border-ink-600 px-3 py-2 text-sm tracking-wider text-ink-200 transition-colors hover:bg-ink-800"
           @click="router.push('/')"
         >
-          Back to Projects
+          {{ backLabel }}
         </button>
       </div>
     </main>

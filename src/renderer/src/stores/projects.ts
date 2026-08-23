@@ -2,10 +2,18 @@
  * Projects store — the project list, the currently open project, and
  * debounced autosave with a dirty flag (drives the header save indicator).
  *
- * Storage is reached only through the `ProjectLibrary` port (PLAN.md D1), so
+ * Storage is reached only through the `ProjectStore` port (PLAN.md D1), so
  * every action here is async. Mutating actions return null/false (and set
  * `lastError`) instead of rejecting, so views have a single error surface to
  * present.
+ *
+ * **This is where the two shells' storage differs, and the only place.** The
+ * browser gets `browserStore` and with it a *list*; the desktop gets
+ * `documentStore` and with it the one file main has open (D1, D8). `load` and
+ * `save` are the same call either way — what differs is the surface *around*
+ * them, and a job the running shell has no answer for returns null rather than
+ * throwing "unsupported", because the view that would have called it is not
+ * reachable there anyway (§4).
  *
  * Two things follow from the port being async and are load-bearing:
  *
@@ -30,15 +38,35 @@ import {
 import { encodeShare, shareUrl } from '@/domain/share'
 import { StorageQuotaError, type ProjectSummary } from '@/persistence/repository'
 import { createBrowserStore } from '@/persistence/browserStore'
+import { createDocumentStore } from '@/persistence/documentStore'
+import { DocumentError, type DocumentStore, type ProjectLibrary } from '@/persistence/store'
+import { isDesktop } from '@/utils/desktop'
 
 export type SaveState = 'saved' | 'saving' | 'unsaved'
 
 export const AUTOSAVE_DELAY_MS = 500
 
 export const useProjectsStore = defineStore('projects', () => {
-  const library = createBrowserStore()
+  /**
+   * The one storage call site (D1). Which adapter answers is decided here and
+   * nowhere else — `load` and `save` go through the port either way, and the
+   * two narrow references below are for the jobs only one shell has.
+   */
+  const adapter: ProjectLibrary | DocumentStore = isDesktop()
+    ? createDocumentStore()
+    : createBrowserStore()
+  /** The list operations, in the browser build. Null on the desktop (D1). */
+  const library: ProjectLibrary | null = adapter.kind === 'browser' ? adapter : null
+  /** The document operations, on the desktop. Null in the browser (D1). */
+  const documents: DocumentStore | null = adapter.kind === 'document' ? adapter : null
 
   const summaries = ref<ProjectSummary[]>([])
+  /**
+   * The open document's filename, without its extension — what the editor's
+   * header shows now that no list view carries a name. Null in the browser,
+   * where the header falls back to the project's own name.
+   */
+  const documentName = ref<string | null>(null)
   const current = ref<Project | null>(null)
   const saveState = ref<SaveState>('saved')
   /** Latest storage/validation failure, for the manager view's error banner. */
@@ -58,40 +86,113 @@ export const useProjectsStore = defineStore('projects', () => {
   let storedHash: string | null = null
 
   async function refresh(): Promise<void> {
+    // The desktop has no list to refresh: the OS is the project list (§4).
+    if (!library) return
     summaries.value = await library.list()
   }
 
   /** Persist a project; on failure record the error and report false. */
   async function persist(project: Project): Promise<boolean> {
     try {
-      await library.save(project)
+      await adapter.save(project)
       lastError.value = null
       return true
     } catch (error) {
-      lastError.value =
-        error instanceof StorageQuotaError ? error.message : 'Saving the project failed.'
+      lastError.value = failureMessage(error, 'Saving the project failed.')
       return false
     }
   }
 
+  /**
+   * A storage failure, worded for the banner. A quota error and a disk error
+   * both already carry a sentence written for a person; anything else falls
+   * back to the caller's.
+   */
+  function failureMessage(error: unknown, fallback: string): string {
+    if (error instanceof StorageQuotaError || error instanceof DocumentError) return error.message
+    if (error instanceof ProjectValidationError) return error.message
+    return fallback
+  }
+
   async function create(options: CreateProjectOptions): Promise<Project | null> {
-    const project = createProject(options)
+    return admit(createProject(options))
+  }
+
+  /** Persist a fully-formed project (e.g. a bundled sample) and list it. */
+  async function createFrom(project: Project): Promise<Project | null> {
+    return admit(project)
+  }
+
+  /**
+   * Bring a brand-new project into storage.
+   *
+   * The two shells differ here and only here: the browser writes another entry
+   * into its index, while the desktop writes a *file* — in the location the New
+   * dialog showed — and that file becomes the open document (D10). Both answer
+   * with the project, so the views that follow this with a navigation do not
+   * care which happened.
+   */
+  async function admit(project: Project): Promise<Project | null> {
+    if (documents) {
+      try {
+        const created = await documents.createDocument(project)
+        documentName.value = documents.name
+        lastError.value = null
+        return created
+      } catch (error) {
+        lastError.value = failureMessage(error, 'Creating the document failed.')
+        return null
+      }
+    }
     if (!(await persist(project))) return null
     await refresh()
     return project
   }
 
-  /** Persist a fully-formed project (e.g. a bundled sample) and list it. */
-  async function createFrom(project: Project): Promise<Project | null> {
-    if (!(await persist(project))) return null
-    await refresh()
-    return project
+  /**
+   * Open a document through the desktop's Open dialog (D15's dialog path).
+   * Null when the user cancelled, or when the file could not be read — the
+   * banner says which.
+   */
+  async function openDocument(): Promise<Project | null> {
+    if (!documents) return null
+    try {
+      const project = await documents.openDocument()
+      documentName.value = documents.name
+      lastError.value = null
+      return project
+    } catch (error) {
+      lastError.value = failureMessage(error, 'That document could not be opened.')
+      return null
+    }
+  }
+
+  /** Where a new document would go, for the New dialog's location row (D10). */
+  async function defaultLocation(): Promise<string | null> {
+    return documents ? await documents.defaultLocation() : null
+  }
+
+  /** Ask for another location; null when the user cancelled. */
+  async function chooseLocation(): Promise<string | null> {
+    return documents ? await documents.chooseLocation() : null
   }
 
   async function open(id: string): Promise<Project | null> {
     const token = ++openToken
     await flushAutosave()
-    const project = await library.load(id)
+    let project: Project | null
+    try {
+      project = await adapter.load(id)
+      lastError.value = null
+    } catch (error) {
+      // Only the document adapter throws here — an unreadable or corrupt file.
+      // The view shows its missing state; the banner says why (Phase F3).
+      lastError.value = failureMessage(error, 'That document could not be opened.')
+      project = null
+    }
+    // The name comes off the adapter rather than out of the project, because a
+    // document is called what its *file* is called.
+    if (documents) documentName.value = documents.name
     if (token !== openToken) return project // a newer open won; leave its result standing
     current.value = project
     storedHash = project ? projectContentHash(project) : null
@@ -106,9 +207,18 @@ export const useProjectsStore = defineStore('projects', () => {
     current.value = null
     storedHash = null
     saveState.value = 'saved'
+    // One window, one document (D17): leaving the editor closes the file, so
+    // the start screen is not sitting on top of a document main still holds.
+    if (documents) {
+      await documents.closeDocument()
+      documentName.value = null
+    }
   }
 
   async function rename(id: string, name: string): Promise<boolean> {
+    // Renaming is renaming a *file* on the desktop, which is the file manager's
+    // job now (§4). The view that offered it is not reachable there.
+    if (!library) return false
     const isOpen = current.value?.id === id
     // The port renames what is *stored*, so anything still in the autosave
     // window has to land first or it would be renamed and then written back.
@@ -131,6 +241,7 @@ export const useProjectsStore = defineStore('projects', () => {
 
   /** Copy a project under a fresh id; resolves to the copy's id. */
   async function duplicate(id: string): Promise<string | null> {
+    if (!library) return null
     if (current.value?.id === id) await flushAutosave()
     let copyId: string
     try {
@@ -145,6 +256,7 @@ export const useProjectsStore = defineStore('projects', () => {
   }
 
   async function remove(id: string): Promise<void> {
+    if (!library) return
     await library.remove(id)
     if (current.value?.id === id) {
       current.value = null
@@ -171,17 +283,15 @@ export const useProjectsStore = defineStore('projects', () => {
 
   /** Take ownership of an already-validated project (upload, share link). */
   async function adopt(project: Project): Promise<Project | null> {
-    if (await library.load(project.id)) {
+    if (library && (await library.load(project.id))) {
       project.id = crypto.randomUUID()
     }
-    if (!(await persist(project))) return null
-    await refresh()
-    return project
+    return admit(project)
   }
 
   /** The open project if it is the one asked for, otherwise a fresh load. */
   async function projectById(id: string): Promise<Project | null> {
-    return current.value?.id === id ? current.value : await library.load(id)
+    return current.value?.id === id ? current.value : await adapter.load(id)
   }
 
   /** Shareable URL carrying the whole project. Null (with lastError) on failure. */
@@ -269,12 +379,17 @@ export const useProjectsStore = defineStore('projects', () => {
   return {
     summaries,
     current,
+    documentName,
     saveState,
     lastError,
     refresh,
     create,
     createFrom,
+    admit,
     open,
+    openDocument,
+    defaultLocation,
+    chooseLocation,
     close,
     rename,
     duplicate,

@@ -1,24 +1,10 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import type { AppApi } from '@shared/api'
 import { desktop, isDesktop } from '../desktop'
+import { stubApi } from './stubApi'
 
 /** A stand-in for what the preload script exposes. */
-const stubApi = {
-  app: {
-    getVersion: () => Promise.resolve('1.0.0'),
-    platform: 'darwin',
-    onBeforeQuit: () => () => {},
-    saveComplete: () => {},
-  },
-  files: {
-    save: () => Promise.resolve(null),
-    openText: () => Promise.resolve(null),
-  },
-  menu: {
-    setContext: () => {},
-    onAction: () => () => {},
-  },
-} satisfies AppApi
+const api = stubApi()
 
 afterEach(() => {
   delete (window as Window & { api?: AppApi }).api
@@ -31,8 +17,8 @@ describe('desktop', () => {
   })
 
   it('hands back the bridge the preload script exposed', () => {
-    ;(window as Window & { api?: AppApi }).api = stubApi
-    expect(desktop()).toBe(stubApi)
+    ;(window as Window & { api?: AppApi }).api = api
+    expect(desktop()).toBe(api)
     expect(isDesktop()).toBe(true)
   })
 })

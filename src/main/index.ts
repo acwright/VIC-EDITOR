@@ -6,6 +6,7 @@ import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import { IPC } from '../shared/ipc'
 import { EMPTY_MENU_CONTEXT, type MenuContext } from '../shared/menu'
 import { registerDialogHandlers } from './dialogs'
+import { registerDocumentHandlers } from './document'
 import { buildMenu, setMenuContext } from './menu'
 import { MIN_WINDOW_SIZE, loadWindowState, trackWindowState } from './windowState'
 
@@ -224,6 +225,7 @@ app.whenReady().then(() => {
   ipcMain.on(IPC.APP_SAVE_COMPLETE, () => finishClose())
   ipcMain.on(IPC.MENU_SET_CONTEXT, (_event, context: MenuContext) => setMenuContext(context))
   registerDialogHandlers()
+  registerDocumentHandlers()
 
   createWindow()
 

@@ -1,6 +1,19 @@
 <script setup lang="ts">
+/**
+ * New Project, in both shells.
+ *
+ * Two optional inputs make it the desktop's *New…* as well as the browser's,
+ * without a branch on the shell (PLAN.md D13):
+ *
+ * - **`location`**, when bound, adds the row that says where the file goes
+ *   (D10). The browser's manager binds nothing and shows nothing; the string
+ *   is display only — the parent asks main for it and main owns the path (D8).
+ * - **`sample`**, when set, makes this *New from Sample…*: the type, geometry
+ *   and character set are the sample's, so those questions go away and only
+ *   the name and the location are left to answer.
+ */
 import { computed, ref, watch } from 'vue'
-import { Plus } from 'lucide-vue-next'
+import { FolderOpen, Plus } from 'lucide-vue-next'
 import AppButton from '@/components/base/AppButton.vue'
 import AppDialog from '@/components/base/AppDialog.vue'
 import AppTextInput from '@/components/base/AppTextInput.vue'
@@ -8,6 +21,7 @@ import { CHAR_COUNTS, CHAR_HEIGHTS, MODES, PROJECT_TYPES } from '@/domain/modes'
 import { DEFAULT_SEED, defaultSettings, seedAvailable } from '@/domain/factory'
 import type { CreateProjectOptions } from '@/domain/factory'
 import type { CharsetSeed } from '@/domain/romCharset'
+import type { Sample } from '@/samples'
 import type { CharCount, CharHeight, ProjectType } from '@/domain/types'
 
 /**
@@ -18,8 +32,16 @@ import type { CharCount, CharHeight, ProjectType } from '@/domain/types'
  * start blank and the seed choice says so rather than going quiet (D16b).
  */
 const open = defineModel<boolean>({ required: true })
+/** Where the file goes, as text. Undefined in the browser, which has no folder. */
+const location = defineModel<string>('location')
 
-const emit = defineEmits<{ create: [options: CreateProjectOptions] }>()
+const props = defineProps<{ sample?: Sample | null }>()
+
+const emit = defineEmits<{
+  create: [options: CreateProjectOptions]
+  /** The location row's button; the parent runs the folder dialog (D8). */
+  chooseLocation: []
+}>()
 
 /** The machine's power-on configuration; the form overrides three fields of it. */
 const DEFAULTS = defaultSettings()
@@ -67,10 +89,11 @@ const TYPE_HINTS: Record<ProjectType, string> = {
   mixed: 'Each character picks its own rendering, which is what real VIC screens do.',
 }
 
-// Reset the form each time the dialog opens
+// Reset the form each time the dialog opens. A sample brings its own name and
+// its own everything else, so the form opens as "this one, called this, here".
 watch(open, (isOpen) => {
   if (!isOpen) return
-  name.value = ''
+  name.value = props.sample?.name ?? ''
   type.value = 'hires'
   charHeight.value = DEFAULTS.charHeight
   charCount.value = DEFAULTS.charCount
@@ -78,6 +101,9 @@ watch(open, (isOpen) => {
 })
 
 const canCreate = computed(() => name.value.trim().length > 0)
+
+/** The build questions belong to a blank project; a sample has answered them. */
+const asksForType = computed(() => !props.sample)
 
 function submit() {
   if (!canCreate.value) return
@@ -91,11 +117,30 @@ function submit() {
 </script>
 
 <template>
-  <AppDialog v-model="open" title="New Project">
+  <AppDialog v-model="open" :title="sample ? 'New from Sample' : 'New Project'">
     <form class="flex flex-col gap-4" @submit.prevent="submit">
       <AppTextInput v-model="name" label="Name" placeholder="My Project" autofocus />
 
-      <fieldset class="flex flex-col gap-1.5">
+      <!-- Present only where a document has a folder to live in (D10). -->
+      <div v-if="location !== undefined">
+        <span class="font-display mb-1 block text-base tracking-wider text-ink-300">Location</span>
+        <div class="flex items-center gap-2">
+          <!-- dir=rtl keeps the *end* of a long path visible, which is the half
+               that says which folder this is -->
+          <p
+            class="min-w-0 flex-1 truncate rounded-sm border border-ink-700 bg-ink-850 px-3 py-2 text-left text-sm text-ink-300"
+            dir="rtl"
+            :title="location"
+          >
+            {{ location }}
+          </p>
+          <AppButton label="Choose Folder" @click="emit('chooseLocation')">
+            <FolderOpen class="size-4" />
+          </AppButton>
+        </div>
+      </div>
+
+      <fieldset v-if="asksForType" class="flex flex-col gap-1.5">
         <legend class="font-display text-base tracking-wider text-ink-300">Type</legend>
         <div class="flex gap-1" role="radiogroup" aria-label="Project type">
           <button
@@ -118,7 +163,7 @@ function submit() {
         <p class="text-xs text-ink-500">{{ TYPE_HINTS[type] }}</p>
       </fieldset>
 
-      <div class="flex gap-4">
+      <div v-if="asksForType" class="flex gap-4">
         <fieldset class="flex flex-1 flex-col gap-1.5">
           <legend class="font-display text-base tracking-wider text-ink-300">
             Character Height
@@ -166,7 +211,7 @@ function submit() {
         </fieldset>
       </div>
 
-      <fieldset class="flex flex-col gap-1.5">
+      <fieldset v-if="asksForType" class="flex flex-col gap-1.5">
         <legend class="font-display text-base tracking-wider text-ink-300">Character Set</legend>
         <div class="flex gap-1" role="radiogroup" aria-label="Starting character set">
           <button
@@ -197,7 +242,7 @@ function submit() {
         <p class="text-xs text-ink-500">{{ seedNote }}</p>
       </fieldset>
 
-      <p class="text-xs text-ink-500">
+      <p v-if="asksForType" class="text-xs text-ink-500">
         {{ DEFAULTS.columns }} × {{ DEFAULTS.rows }} cells. Geometry, colors and memory layout are
         all editable in project settings.
       </p>

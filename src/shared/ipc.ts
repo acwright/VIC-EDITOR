@@ -26,6 +26,28 @@ export const IPC = {
    * with the file, or `null` if the user cancelled.
    */
   FILE_OPEN_TEXT: 'file:open-text',
+  /**
+   * Renderer → main: create a new document from a name and its contents.
+   * Main derives the filename and picks the folder (D8, D10).
+   */
+  DOCUMENT_CREATE: 'document:create',
+  /** Renderer → main: run an open dialog and adopt what the user chose. */
+  DOCUMENT_OPEN: 'document:open',
+  /**
+   * Renderer → main: re-read whatever document is open. This is how the
+   * renderer recovers after a reload — main is the process that knows (D9).
+   */
+  DOCUMENT_CURRENT: 'document:current',
+  /** Renderer → main: write these bytes to the open document, atomically (D6). */
+  DOCUMENT_WRITE: 'document:write',
+  /** Renderer → main: nothing is open any more. */
+  DOCUMENT_CLOSE: 'document:close',
+  /** Renderer → main: show the open document in the platform's file manager. */
+  DOCUMENT_REVEAL: 'document:reveal',
+  /** Renderer → main: where a new document would go, for the New dialog (D10). */
+  DOCUMENT_DEFAULT_LOCATION: 'document:default-location',
+  /** Renderer → main: run a folder dialog and remember what came back. */
+  DOCUMENT_CHOOSE_LOCATION: 'document:choose-location',
 } as const
 
 export type IpcChannel = (typeof IPC)[keyof typeof IPC]

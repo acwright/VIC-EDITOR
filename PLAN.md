@@ -21,13 +21,19 @@ persistence design — so this is one plan with a table of the handful of values
 
 ## Current Status
 
-- **Status: Phase F2 is complete.** Both repos now have one serialization —
-  `serializeProject`, git-first per D4 — behind downloads today and behind F3's disk writes
-  tomorrow, with golden documents per mode holding the format still. The save path hashes
-  the project excluding `modifiedAt` and returns early when nothing moved (D5), so a project
-  nobody edited is not written and its stamp does not churn. §5 is re-measured with the real
-  serializer and two of its numbers changed (§5). Still nothing written to a file, and still
-  nothing under `src/main/` beyond F1's async `onBeforeQuit`.
+- **Status: Phase F3 is complete.** The desktop app opens, edits and saves a *file*.
+  `src/main/document.ts` owns the open document — atomic writes, a stamp on every read and
+  write, and the renderer never naming a path (D6, D8). `documentStore.ts` puts that behind
+  the same `ProjectStore` port the browser adapter implements, so `stores/projects.ts` still
+  has one `load` and one `save`; the shells differ only in the surface *around* them. `/`
+  routes to the new `StartView` on the desktop and to the untouched `ProjectManagerView` in
+  the browser, decided once in the router (D13), and `back` is *Close Document* there (D14).
+  `localStorage` is no longer the desktop's project storage. Not yet done here: double-click
+  and recents (F4), external-change handling (F5) and the migration (F6) — a `v1.6` desktop
+  user's projects are still only in browser storage until then.
+- Phase F2 before it gave both repos one serialization — `serializeProject`, git-first per D4
+  — with golden documents per mode holding the format still, and D5's early return so a
+  project nobody edited is not written and its stamp does not churn.
 - Phase F1 before it put storage behind the async `ProjectStore` / `ProjectLibrary` port
   (D1), with `localStorage` still the only implementation. Phase F0 before *that* left §6 as
   measurements rather than assumptions, including the two things this document had wrong
@@ -803,24 +809,89 @@ What F2 settled, for the phases that inherit it:
 **Goal:** the desktop app opens, edits and saves a project file. `localStorage` is no longer
 the desktop's project storage.
 
-- [ ] `src/main/document.ts` — `read`, `write` (atomic, stamped), `create`, `pick`, `reveal`,
+- [x] `src/main/document.ts` — `read`, `write` (atomic, stamped), `create`, `pick`, `reveal`,
       holding the open document so the renderer never names a path (D8)
-- [ ] `src/shared/document.ts`, the channels, the preload surface
-- [ ] `persistence/documentStore.ts` — the port over `window.api.document`
-- [ ] `StartView.vue`, and the router's `isDesktop()` home route (D12, D13)
-- [ ] `EditorView` — the document's name and a modified indicator in the header, since no
+- [x] `src/shared/document.ts`, the channels, the preload surface
+- [x] `persistence/documentStore.ts` — the port over `window.api.document`
+- [x] `StartView.vue`, and the router's `isDesktop()` home route (D12, D13)
+- [x] `EditorView` — the document's name and a modified indicator in the header, since no
       list view carries them any more; a missing-or-unreadable state that offers the start
       screen
-- [ ] `back` becomes *Close Document* on the desktop; the shortcut map grows its shell
-      predicate and `menu.spec.ts` covers it (D14)
-- [ ] *New…* grows a location field (D10); *New from Sample…* uses the same dialog
-- [ ] Node-environment vitest project over `src/main/**`
+- [x] `back` becomes *Close Document* on the desktop; the shortcut map grows its shell
+      wording and `menu.spec.ts` covers it (D14) — **wording, not a predicate**, see below
+- [x] *New…* grows a location field (D10); *New from Sample…* uses the same dialog
+- [x] Node-environment vitest project over `src/main/**`
 
-**Exit criteria, verified in the running app** (the standard `CLAUDE.md` sets): *New…* writes
-a file where it said it would and lands in the editor in the right mode; editing a character
-changes the file on disk; ⌘R returns to the same document; *Open…* opens both a `.tms9918`
-and a legacy `.tms9918.json`; a file edited by hand in a text editor opens; a deliberately
-corrupt file reports why rather than opening blank.
+**Exit criteria: met.** Both repos: full suite green (TMS9918 617, VIC-20 707), `oxlint`,
+`eslint`, `vue-tsc --build`, `npm run build` and `npm run build:web` all green.
+
+**Verified in the running desktop app**, the standard `CLAUDE.md` sets, in both repos —
+driven over CDP against the built app in a throwaway profile, with the native Open dialog
+driven through System Events rather than stubbed:
+
+- *New…* showed `~/Documents` as its location, and Create wrote
+  `F3 Harness Voyager.tms9918` there — the name the user typed, spaces intact — and landed
+  in the editor in Graphics Mode II, with the header showing the **file's** name and the
+  route id equal to the file's own `id` (D9).
+- **Editing a character changed the file on disk**: `git diff --numstat` reported `2 2` —
+  the character's line and `modifiedAt` — through a real file, which is F2's honest number
+  measured a second way. No `.tmp` was left beside it.
+- **An idle ⌘S wrote nothing**: file bytes and mtime both unmoved. D5 survives the move to
+  disk. The negative control ran in the same session — pressing `F` a second time on an
+  already-filled character also wrote nothing, and *Invert* on the same character wrote.
+- **⌘R returned to the same document**, same route, same name, same mode: the renderer asked
+  main what was open and re-read it (D9).
+- ***Open…* opened a v1 `Legacy Export.tms9918.json`** under the name `Legacy Export` — the
+  compound extension stripped whole, not half of it (D3).
+- **A hand-edited file opened**: 4-space indent, keys reordered, and a `note` key added in a
+  text editor. It opened, and after an edit rewrote it through `serializeProject` the `note`
+  was **still there** and the file was back to 2-space indent. D4's "a hand-edited document
+  must not lose anything by being reformatted", on disk.
+- **A corrupt file reported why**: `Project "name" must be a non-empty string.` in the start
+  screen's banner, and the app stayed on the launcher rather than opening blank.
+- **Escape closed the document**: back to the launcher, and `window.api.document.current()`
+  answered `none` — main forgot the file rather than holding it behind the start screen.
+
+What F3 settled, for the phases that inherit it:
+
+- **D14 is a *wording* fork, not a predicate — and that is the honest shape of it.** The
+  phase asked for "a shell predicate beside the mode predicate". Every editor action means
+  something in both shells; the only thing that differs is what `back` is *called*. So the
+  map grew `desktopDescription`, the menu table grew `desktopLabel`, and `shell()` picks —
+  once, in `utils/shortcuts.ts` and `utils/menu.ts`, so no component branches on the shell.
+  A filtering predicate would have had no user until F7's desktop-only File items; adding
+  the parameter early would have been dead code, and F7 is where it belongs.
+- **The editor's Back/Close button takes its words from `MENU_ACTIONS`**, through a new
+  `actionLabel()`. The button and its File menu item cannot say different things, and this
+  is why `utils/strings.ts` is still F7's rather than half-written here.
+- **`DocumentResult<T>` has three cases, not two.** `ok`, `none` and `error`: cancelling a
+  dialog and a disk that said no are different, and collapsing them into `null` — the shape
+  `files.save`/`files.openText` use — loses the sentence the banner wants. Main writes that
+  sentence, because main is the side that knows.
+- **`DocumentStore` is the mirror of `ProjectLibrary`.** D1 split the port for the browser's
+  *list*; this is the desktop's *file*. `stores/projects.ts` holds `adapter` plus two narrow
+  references, and a job the running shell has no answer for returns null rather than
+  throwing "unsupported" — the view that would have called it is not reachable there anyway.
+- **The document adapter satisfies the port's contract suite once a document is open.** That
+  is the one precondition the two adapters do not share, and `documentStore.spec.ts` says so
+  where it calls `describeProjectStore`.
+- **The location the renderer shows never comes back to main.** *Choose Folder…* asks main
+  to run the dialog; main remembers the answer and returns it *for display*; `create` then
+  writes into what main is holding. The renderer displays a path and can still never name
+  one (D8).
+- **`documentName` is a fallback in the header, not a branch.** It is null in the browser, so
+  `documentName ?? project.name` reads correctly in both shells with no `if`.
+- **The temporary file lives beside the target, not in the system temp directory** — `rename`
+  is atomic only within a filesystem. Both failure paths are covered in the node project:
+  a write that fails leaves the old document whole, and a rename that fails leaves no `.tmp`.
+- **`app.setName()` does not rename the *process*.** Driving the unpackaged app through
+  System Events needs `process "Electron"`; "TMS9918 Editor" is the menu bar's name and
+  System Events has never heard of it. Two more harness notes from the same session, both
+  of which read as app bugs and are not: the Open dialog's **Go to Folder** field keeps what
+  was typed into it last, so a script has to ⌘A before typing or the paths concatenate; and
+  Go to Folder does not take when the dialog is *already showing* that directory — which it
+  is on the second open, because D10's remembered location is working. Put each fixture in
+  its own folder.
 
 ### Phase F4 — Double-click
 

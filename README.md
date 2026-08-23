@@ -375,6 +375,10 @@ under it is announced for a screen reader.
 | `Ctrl/Cmd+S`       | Save now                 |
 | `?`                | Keyboard shortcuts       |
 | `Esc`              | Back to the project list |
+| `Esc`              | Close the document       |
+
+In the desktop app `Esc` closes the open document and returns to the start screen; in the browser
+it returns to the project list.
 
 ### Character
 

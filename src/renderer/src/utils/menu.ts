@@ -7,7 +7,8 @@
  * restatement of it, so a menu item and its keyboard shortcut cannot disagree
  * (D10). The second comes off `MENU_ACTIONS`, which words items as menu titles
  * — the help sheet's sentences are not menu titles, so the two are written
- * separately.
+ * separately. A title that differs between the shells is picked here too (D14),
+ * so the main process never has to ask which shell it is in either.
  *
  * Every function is a no-op in the browser build, where `window.api` is
  * undefined. The views call them unconditionally.
@@ -15,11 +16,27 @@
 
 import { MENU_ACTIONS, type MenuContext } from '@shared/menu'
 import { desktop } from './desktop'
-import { MANAGER_SHORTCUTS, editorActions } from './shortcuts'
+import { MANAGER_SHORTCUTS, editorActions, shell } from './shortcuts'
 
-/** Every menu title. Nothing here varies by mode, so this is the whole table. */
+/**
+ * Every menu title. Nothing here varies by mode, so the only question is which
+ * shell is asking.
+ */
 function labels(): Record<string, string> {
-  return Object.fromEntries(MENU_ACTIONS.map((entry) => [entry.action, entry.label]))
+  return Object.fromEntries(MENU_ACTIONS.map((entry) => [entry.action, actionLabel(entry.action)]))
+}
+
+/**
+ * One action's title, worded for this shell.
+ *
+ * Exported because the editor's own Back/Close button wants the same words its
+ * File menu item has — "Back to Projects" in the browser, "Close Document" on
+ * the desktop (D14) — and taking them from here is what stops the two drifting.
+ */
+export function actionLabel(action: string): string {
+  const entry = MENU_ACTIONS.find((item) => item.action === action)
+  if (!entry) return action
+  return shell() === 'desktop' && entry.desktopLabel ? entry.desktopLabel : entry.label
 }
 
 /** What the menu offers while a project is open. */

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import AppDialog from '@/components/base/AppDialog.vue'
-import { keyLabels, shortcutSections } from '@/utils/shortcuts'
+import { describeShortcut, keyLabels, shortcutSections } from '@/utils/shortcuts'
 
 /**
  * The keyboard map, on screen (PLAN.md Phase 11). Both views open it, because
@@ -26,7 +26,7 @@ const sections = shortcutSections()
             :key="shortcut.action"
             class="flex items-baseline justify-between gap-4 border-b border-ink-850 py-1 last:border-0"
           >
-            <span class="text-sm text-ink-300">{{ shortcut.description }}</span>
+            <span class="text-sm text-ink-300">{{ describeShortcut(shortcut) }}</span>
             <span class="flex shrink-0 gap-1">
               <kbd
                 v-for="key in keyLabels(shortcut)"
