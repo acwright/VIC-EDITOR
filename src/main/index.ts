@@ -7,7 +7,12 @@ import { IPC } from '../shared/ipc'
 import { EMPTY_MENU_CONTEXT, type MenuContext } from '../shared/menu'
 import { registerDialogHandlers } from './dialogs'
 import { registerMigrationHandlers } from './migration'
-import { checkOpenDocument, registerDocumentHandlers, restoreLastDocument } from './document'
+import {
+  checkOpenDocument,
+  onOpenDocumentChanged,
+  registerDocumentHandlers,
+  restoreLastDocument,
+} from './document'
 import { buildMenu, setMenuContext } from './menu'
 import {
   documentFromArgv,
@@ -291,6 +296,10 @@ app.whenReady().then(() => {
   // Opening a document changes what Open Recent holds, and the menu is built
   // from that list rather than from a copy of it.
   onRecentDocumentsChanged(buildMenu)
+  // Whether there is a document at all decides whether Reveal is live, and
+  // main is the side that knows. Opening one already rebuilds through recents;
+  // closing one moves nothing else, so it says so here (F7).
+  onOpenDocumentChanged(buildMenu)
 
   // Windows and Linux deliver a double-click as an argument; macOS has already
   // delivered it to `open-file` above, where argv is empty (S2). Either way the

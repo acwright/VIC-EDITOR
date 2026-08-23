@@ -41,19 +41,14 @@ export function documentName(path: string): string {
 }
 
 /**
- * A project name as a filename. Only what a filesystem refuses is touched —
- * the separators and Windows' reserved set — so "Title Screen" stays
- * `Title Screen.vic20` rather than becoming a slug (D3).
+ * A project name as a filename (D3).
+ *
+ * Re-exported rather than written here: since F7 the renderer derives the same
+ * name for the copy *Save a Copy…* suggests, so the rule lives in `shared/`
+ * where both sides can hold it. Main's callers still reach it through this
+ * module, which is where the rest of the file mechanics are.
  */
-export function documentFileName(name: string): string {
-  const safe =
-    name
-      .replace(/[<>:"/\\|?*]/g, ' ')
-      .replace(/\s+/g, ' ')
-      // A leading dot hides the file; a trailing dot or space is dropped by Windows.
-      .replace(/^[.\s]+|[.\s]+$/g, '') || 'Project'
-  return `${safe}.${DOCUMENT_EXTENSION}`
-}
+export { documentFileName } from '../shared/document'
 
 /** What a file is right now (D6). */
 export function stampOf(path: string): DocumentStamp {

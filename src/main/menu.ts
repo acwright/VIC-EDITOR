@@ -2,11 +2,13 @@ import { app, shell, BrowserWindow, Menu, type MenuItemConstructorOptions } from
 import { is } from '@electron-toolkit/utils'
 import { IPC } from '../shared/ipc'
 import { requestOpen } from './openRequests'
+import { openDocumentDialog, openDocumentPath, revealDocument } from './document'
 import { clearRecentDocuments, recentDocumentPaths } from './recent'
 import { documentName } from './documentFile'
 import {
   EMPTY_MENU_CONTEXT,
   MENU_ACTIONS,
+  sampleAction,
   type MenuContext,
   type MenuSection,
 } from '../shared/menu'
@@ -110,6 +112,60 @@ function openRecentItem(): MenuItemConstructorOptions {
   }
 }
 
+/**
+ * Open… (D15, F7).
+ *
+ * Main's own item, like Open Recent: it runs the dialog and puts what the user
+ * chose into the arrival path, so the renderer flushes what it is holding
+ * before the document is swapped. Always live — opening a document is the one
+ * thing this app can always do.
+ */
+function openItem(): MenuItemConstructorOptions {
+  return {
+    label: 'Open…',
+    click: () => void openDocumentDialog(BrowserWindow.getFocusedWindow()),
+  }
+}
+
+/**
+ * New from Sample ▸ (F7).
+ *
+ * The samples belong to the renderer, so the submenu is built from what the
+ * view last reported and each item sends that sample's id back — the same
+ * round trip as every other menu item, and main still never decides what a
+ * sample *is*. Disabled rather than absent when the view on screen has not
+ * reported any, which is only ever the moment before the first report.
+ */
+function newFromSampleItem(): MenuItemConstructorOptions {
+  if (context.samples.length === 0) {
+    return { label: 'New from Sample', enabled: false }
+  }
+  return {
+    label: 'New from Sample',
+    submenu: context.samples.map((sample) => ({
+      label: sample.name,
+      click: () => send(sampleAction(sample.id)),
+    })),
+  }
+}
+
+/**
+ * Reveal in Finder / Show in Explorer / Show in Files (F7).
+ *
+ * Each platform's own words for it — this is the one item in the menu whose
+ * *name* is a platform difference rather than a shell one. Main's item again,
+ * and necessarily: it acts on the open document's path, and enabled is answered
+ * by whether main has one (D8).
+ */
+function revealItem(): MenuItemConstructorOptions {
+  const label = isMac
+    ? 'Reveal in Finder'
+    : process.platform === 'win32'
+      ? 'Show in Explorer'
+      : 'Show in Files'
+  return { label, enabled: openDocumentPath() !== null, click: () => revealDocument() }
+}
+
 function template(): MenuItemConstructorOptions[] {
   const items = actionItems
 
@@ -121,10 +177,16 @@ function template(): MenuItemConstructorOptions[] {
     {
       label: '&File',
       submenu: [
-        // Open Recent belongs with the commands that bring a document *in*,
-        // which on this menu is New Project… — Open… and the rest of the File
-        // menu are Phase F7's.
-        ...items('file', { newProject: [{ type: 'separator' }, openRecentItem()] }),
+        // The commands that bring a document *in* come first and as one group:
+        // New Project…, New from Sample ▸, Open…, Open Recent ▸. The three that
+        // are not renderer actions hang off New Project… rather than being
+        // placed by index, so the order is stated where its reason is.
+        ...items('file', {
+          newProject: [newFromSampleItem(), openItem(), openRecentItem()],
+          // Reveal acts on the document these two have just written to, and
+          // reads as the end of that group rather than the start of a new one.
+          saveCopy: [revealItem()],
+        }),
         { type: 'separator' },
         // macOS quits from the app menu; everywhere else File is where Quit lives.
         isMac ? { role: 'close' } : { role: 'quit' },

@@ -13,38 +13,34 @@
  * The browser build never reaches this view: the router picks one home route
  * per shell (D13), and `ProjectManagerView.vue` is the other one, untouched.
  */
-import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { useRouter } from 'vue-router'
+import { onBeforeUnmount, onMounted, ref } from 'vue'
 import { Clock, FileText, FolderOpen, Github, Keyboard, Plus, X } from 'lucide-vue-next'
 import AppButton from '@/components/base/AppButton.vue'
 import HelpDialog from '@/components/HelpDialog.vue'
 import MigrationDialog from '@/components/projects/MigrationDialog.vue'
 import NewProjectDialog from '@/components/projects/NewProjectDialog.vue'
-import type { CreateProjectOptions } from '@/domain/factory'
+import { useNewDocument } from '@/composables/newDocument'
 import { migrator, type MigrationOutcome, type MigrationPlan } from '@/persistence/migration'
-import { SAMPLES, type Sample } from '@/samples'
+import { SAMPLES } from '@/samples'
 import { useProjectsStore } from '@/stores/projects'
 import type { RecentDocument } from '@shared/document'
 import { managerMenuContext, onMenuAction, reportMenuContext } from '@/utils/menu'
 import { matchManagerShortcut, shortcutLabel, type ManagerAction } from '@/utils/shortcuts'
+import { words } from '@/utils/strings'
 
 const store = useProjectsStore()
-const router = useRouter()
 
 const version = __APP_VERSION__
 
-const showNewProject = ref(false)
 const showHelp = ref(false)
-/**
- * The sample the New dialog is standing in for, or null for a blank project.
- * *New from Sample…* goes through the same dialog so that it asks the same two
- * questions — what to call it and where it goes — rather than dropping a file
- * somewhere the user did not choose (D10).
- */
-const sampleTarget = ref<Sample | null>(null)
 
-/** Where a new document would go, as the dialog shows it (D10). */
-const location = ref('')
+/**
+ * *New…* and *New from Sample…*, both of which go through the same dialog so
+ * that they ask the same two questions — what to call it and where it goes —
+ * rather than dropping a file somewhere the user did not choose (D10). The
+ * editor shares this, because File ▸ New Project… works from there too (F7).
+ */
+const newDocument = useNewDocument()
 
 /** Recent Documents (D16). Empty in the browser, where this view never runs. */
 const recent = ref<RecentDocument[]>([])
@@ -126,7 +122,7 @@ async function removeBrowserCopies() {
 
 /** The same keys the manager has: this is the view they belong to here. */
 const ACTIONS: Record<ManagerAction, () => void> = {
-  newProject: () => startNew(null),
+  newProject: () => newDocument.start(),
   help: () => (showHelp.value = true),
 }
 
@@ -155,42 +151,13 @@ let stopMenuAction: (() => void) | undefined
 onMounted(() => {
   reportMenuContext(managerMenuContext())
   stopMenuAction = onMenuAction((action) => {
+    // New Project… and every entry of New from Sample ▸ are the same dialog,
+    // and it answers for both (F7).
+    if (newDocument.handles(action)) return
     if (action in ACTIONS) ACTIONS[action as ManagerAction]()
   })
 })
 onBeforeUnmount(() => stopMenuAction?.())
-
-// Asked each time the dialog opens rather than once on mount: opening a
-// document moves the default, and the dialog has to show where the file will
-// actually land.
-watch(showNewProject, async (open) => {
-  if (open) location.value = (await store.defaultLocation()) ?? ''
-})
-
-function startNew(sample: Sample | null) {
-  sampleTarget.value = sample
-  showNewProject.value = true
-}
-
-async function chooseLocation() {
-  const chosen = await store.chooseLocation()
-  if (chosen) location.value = chosen
-}
-
-async function onCreate(options: CreateProjectOptions) {
-  const sample = sampleTarget.value
-  // A sample is a whole project rather than a set of options, so it is built
-  // and then renamed to what the dialog collected.
-  const project = sample
-    ? await store.createFrom({ ...sample.build(), name: options.name })
-    : await store.create(options)
-  if (project) {
-    showNewProject.value = false
-    router.push(`/edit/${project.id}`)
-  }
-  // On failure the dialog stays open; the banner says why — most often that a
-  // document of that name is already in that folder.
-}
 
 /**
  * Both of these ask for a document and expect nothing back: what they asked for
@@ -234,7 +201,7 @@ function openRecent(entry: RecentDocument) {
       <button
         type="button"
         class="flex cursor-pointer flex-col items-start gap-1 rounded-md border border-ink-700 bg-ink-900 p-4 text-left transition-colors hover:border-ink-500 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink-300"
-        @click="startNew(null)"
+        @click="newDocument.start()"
       >
         <Plus class="size-5 text-ink-300" />
         <span class="font-display text-xl tracking-wider">New Project…</span>
@@ -246,7 +213,7 @@ function openRecent(entry: RecentDocument) {
         @click="openDocument()"
       >
         <FolderOpen class="size-5 text-ink-300" />
-        <span class="font-display text-xl tracking-wider">Open…</span>
+        <span class="font-display text-xl tracking-wider">{{ words('openProject') }}</span>
         <span class="text-xs text-ink-500">Any project file, wherever you keep it</span>
       </button>
     </section>
@@ -282,7 +249,7 @@ function openRecent(entry: RecentDocument) {
           :key="sample.id"
           type="button"
           class="flex cursor-pointer items-start gap-2 rounded-md border border-ink-800 bg-ink-900 p-3 text-left transition-colors hover:border-ink-600 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink-300"
-          @click="startNew(sample)"
+          @click="newDocument.start(sample)"
         >
           <FileText class="mt-0.5 size-4 shrink-0 text-ink-500" />
           <span class="min-w-0">
@@ -339,11 +306,11 @@ function openRecent(entry: RecentDocument) {
     />
 
     <NewProjectDialog
-      v-model="showNewProject"
-      v-model:location="location"
-      :sample="sampleTarget"
-      @choose-location="chooseLocation"
-      @create="onCreate"
+      v-model="newDocument.open.value"
+      v-model:location="newDocument.location.value"
+      :sample="newDocument.sample.value"
+      @choose-location="newDocument.chooseLocation()"
+      @create="newDocument.create($event)"
     />
   </div>
 </template>

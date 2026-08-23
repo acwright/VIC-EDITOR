@@ -2,6 +2,7 @@ import { BrowserWindow, app, dialog, ipcMain, type FileFilter } from 'electron'
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, extname, join } from 'node:path'
 import { IPC } from '../shared/ipc'
+import { DOCUMENT_EXTENSION, DOCUMENT_TYPE_NAME } from '../shared/document'
 import type { OpenFileRequest, OpenedTextFile, SaveFileRequest } from '../shared/api'
 
 /**
@@ -29,6 +30,9 @@ const FILTER_NAMES: Record<string, string> = {
   bin: 'Binary',
   png: 'PNG Image',
   json: 'Project File',
+  // *Save a Copy…* suggests `<name>.vic20`, so the filter row this dialog
+  // picks from the extension has to know the document type's own name (D3, F7).
+  [DOCUMENT_EXTENSION]: DOCUMENT_TYPE_NAME,
 }
 
 /** Where the last save and the last open landed, per §7 Phase E4. */

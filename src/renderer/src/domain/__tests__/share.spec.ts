@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { createProject } from '../factory'
 import { ProjectValidationError } from '../serialization'
 import {
@@ -126,6 +126,26 @@ describe('share links', () => {
     expect(url.startsWith(window.location.origin)).toBe(true)
     expect(url.endsWith('#v=1abc')).toBe(true)
     expect(readShareHash(new URL(url).hash)).toBe('1abc')
+  })
+
+  /**
+   * A link made on the desktop has to point at the *web* app (D21). The
+   * desktop shell is served from `app://…`, so a link rooted at its own origin
+   * resolves only inside a copy of the app that will never receive it — which
+   * is the `v1.6` defect this fixes.
+   */
+  describe('on the desktop', () => {
+    afterEach(() => {
+      vi.unstubAllGlobals()
+    })
+
+    it('roots the link at the published web app', () => {
+      vi.stubGlobal('api', {})
+      const url = shareUrl('1abc')
+      expect(url).toBe(`${__WEB_APP_URL__}#v=1abc`)
+      expect(url.startsWith('https://')).toBe(true)
+      expect(readShareHash(new URL(url).hash)).toBe('1abc')
+    })
   })
 
   it('rejects payloads with no scheme, an unknown scheme, or nothing after it', async () => {

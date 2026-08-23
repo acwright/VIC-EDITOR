@@ -73,6 +73,30 @@ export const LEGACY_DOCUMENT_EXTENSION = 'vic20.json'
 export const DOCUMENT_TYPE_NAME = 'VIC-20 Project'
 
 /**
+ * A project name as a filename (D3).
+ *
+ * Only what a filesystem refuses is touched — the separators and Windows'
+ * reserved set — so "Title Screen" stays `Title Screen.vic20` rather than
+ * becoming a slug.
+ *
+ * It lives here, rather than beside the file mechanics it was written for,
+ * because **both** writers of a document have to agree on it: main derives the
+ * name a new document is created under (D8, D10), and the renderer derives the
+ * one *Save a Copy…* suggests to the save dialog (F7). A copy saved out of the
+ * editor and a document created by the app are the same file, and are named the
+ * same way.
+ */
+export function documentFileName(name: string): string {
+  const safe =
+    name
+      .replace(/[<>:"/\\|?*]/g, ' ')
+      .replace(/\s+/g, ' ')
+      // A leading dot hides the file; a trailing dot or space is dropped by Windows.
+      .replace(/^[.\s]+|[.\s]+$/g, '') || 'Project'
+  return `${safe}.${DOCUMENT_EXTENSION}`
+}
+
+/**
  * One entry of Recent Documents (D16).
  *
  * **No path crosses in either direction.** `id` is main's own opaque handle on

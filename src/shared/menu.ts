@@ -39,10 +39,17 @@
 export type MenuSection = 'file' | 'edit' | 'character' | 'brush' | 'color' | 'view' | 'help'
 
 export interface MenuActionItem {
-  /** The `EditorAction` or `ManagerAction` this item dispatches. */
+  /** The `EditorAction`, `ManagerAction` or `MenuCommand` this item dispatches. */
   action: string
   /** The item's title, in Title Case. */
   label: string
+  /**
+   * True for an item whose action is a `MenuCommand` rather than a shortcut —
+   * a command the menu is the only surface for, so no key fires it and the
+   * help sheet does not list it. `menu.spec.ts` reads this to know which of
+   * the two tables an entry has to appear in.
+   */
+  command?: true
   /**
    * The title in the desktop shell, for an item that acts on a *document*
    * rather than on a list (D14). Only an action whose shortcut carries a
@@ -54,11 +61,56 @@ export interface MenuActionItem {
   separatorBefore?: boolean
 }
 
+/**
+ * Commands the desktop menu is the only surface for (F7).
+ *
+ * Everything else in the table below is an action a key already fires, and the
+ * menu only says where it appears; these have no key, because the keyboard map
+ * is the *editor's* and these are the shell's file commands. They are still the
+ * renderer's to perform — *Save a Copy…* serializes the open project and hands
+ * it to a save dialog — so they travel the same `MENU_ACTION` channel and land
+ * in the same handler table a shortcut would.
+ *
+ * Kept deliberately short. A command that would be worth a key belongs in
+ * `utils/shortcuts.ts` instead, where the help sheet and the README can see it.
+ */
+export const MENU_COMMANDS = ['saveCopy'] as const
+
+export type MenuCommand = (typeof MENU_COMMANDS)[number]
+
+/**
+ * *New from Sample ▸* (F7).
+ *
+ * The samples are the renderer's — main has never seen one — so the submenu is
+ * built from what the view reports in its `MenuContext` and each item carries
+ * the sample's own id back. A prefix rather than an entry per sample in
+ * `MENU_COMMANDS`: the list is data, and a table that had to be edited every
+ * time a sample was added would be a second place to forget.
+ */
+export const SAMPLE_ACTION_PREFIX = 'sample:'
+
+/** The action id that asks for a new project from `id`. */
+export function sampleAction(id: string): string {
+  return `${SAMPLE_ACTION_PREFIX}${id}`
+}
+
+/** The sample an action names, or null when it names something else. */
+export function sampleFromAction(action: string): string | null {
+  return action.startsWith(SAMPLE_ACTION_PREFIX) ? action.slice(SAMPLE_ACTION_PREFIX.length) : null
+}
+
+/** One sample, as the menu needs it: something to call it, and its id. */
+export interface MenuSample {
+  id: string
+  name: string
+}
+
 export const MENU_ACTIONS: readonly MenuActionItem[] = [
   // The ellipsis is the HIG's promise that the command asks for something
-  // before it does anything.
+  // before it does anything. Open…, New from Sample ▸, Open Recent ▸ and
+  // Reveal sit in this run too — they are main's own items, since none of them
+  // is an action the renderer dispatches, and `menu.ts` places them.
   { action: 'newProject', label: 'New Project…', section: 'file' },
-  { action: 'save', label: 'Save', section: 'file', separatorBefore: true },
   {
     action: 'back',
     label: 'Back to Projects',
@@ -68,6 +120,10 @@ export const MENU_ACTIONS: readonly MenuActionItem[] = [
     section: 'file',
     separatorBefore: true,
   },
+  { action: 'save', label: 'Save', section: 'file' },
+  // A *copy*: the open document stays open and this writes another file
+  // somewhere else, which is why it is not "Save As…" (F7).
+  { action: 'saveCopy', label: 'Save a Copy…', command: true, section: 'file' },
 
   { action: 'undo', label: 'Undo', section: 'edit' },
   { action: 'redo', label: 'Redo', section: 'edit' },
@@ -118,7 +174,13 @@ export interface MenuContext {
   enabled: readonly string[]
   /** Labels, keyed by action, as the view on screen words them. */
   labels: Readonly<Record<string, string>>
+  /**
+   * What *New from Sample ▸* offers (F7). The samples are bundled with the
+   * renderer, so this is the same shape as the rest of this type: the renderer
+   * answers, main renders the answer.
+   */
+  samples: readonly MenuSample[]
 }
 
 /** Nothing is live until the renderer says otherwise. */
-export const EMPTY_MENU_CONTEXT: MenuContext = { enabled: [], labels: {} }
+export const EMPTY_MENU_CONTEXT: MenuContext = { enabled: [], labels: {}, samples: [] }

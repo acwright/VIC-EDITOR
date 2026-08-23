@@ -32,6 +32,21 @@ afterEach(() => {
 })
 
 describe('projects store, on the desktop', () => {
+  // *Save a Copy…* suggests a name to the save dialog (F7). For a document
+  // someone renamed in Finder that is the name on screen — the file's — not
+  // the project's own, which nothing has shown them since the list went away.
+  it('names a copy after the open document, not the project inside it', async () => {
+    const store = useProjectsStore()
+    const project = createProject({ name: 'untitled', type: 'hires' })
+    main.seed('Title Screen', serializeProject(project))
+    await store.open(project.id)
+
+    const payload = await store.exportProject(project.id)
+    expect(payload?.filename).toBe('Title Screen.vic20')
+    // And the copy is byte-identical to what the document holds (D4).
+    expect(payload?.json).toBe(main.document?.text)
+  })
+
   it('creates a project as a file and opens it', async () => {
     const store = useProjectsStore()
     const project = await store.create({ name: 'Title Screen', type: 'hires' })

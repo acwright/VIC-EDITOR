@@ -5,6 +5,7 @@
  * reads links. Fragments are never sent to a server; sharing needs no backend.
  */
 
+import { isDesktop } from '@/utils/desktop'
 import { deserializeProject } from './serialization'
 import type { Project } from './types'
 
@@ -130,9 +131,19 @@ export async function decodeShare(payload: string): Promise<Project> {
 
 // --- URL plumbing ---
 
-/** Absolute share URL for a payload, rooted at the app's deployed base path. */
+/**
+ * Absolute share URL for a payload (D21).
+ *
+ * In a browser it is rooted where the app is actually served from, so a fork
+ * deployed somewhere else shares its own address. **On the desktop it is rooted
+ * at the published web app**, because the desktop shell's own origin is
+ * `app://…` — a link built from that resolves only inside a copy of the app
+ * that will never receive it, which is what `v1.6` shipped.
+ */
 export function shareUrl(payload: string): string {
-  const base = `${window.location.origin}${import.meta.env.BASE_URL}`
+  const base = isDesktop()
+    ? __WEB_APP_URL__
+    : `${window.location.origin}${import.meta.env.BASE_URL}`
   return `${base}#${SHARE_PARAM}=${payload}`
 }
 

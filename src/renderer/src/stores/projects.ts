@@ -46,7 +46,7 @@ import {
   type ProjectLibrary,
 } from '@/persistence/store'
 import { isDesktop } from '@/utils/desktop'
-import type { DocumentChange, RecentDocument } from '@shared/document'
+import { documentFileName, type DocumentChange, type RecentDocument } from '@shared/document'
 
 export type SaveState = 'saved' | 'saving' | 'unsaved'
 
@@ -178,6 +178,11 @@ export const useProjectsStore = defineStore('projects', () => {
    */
   async function admit(project: Project): Promise<Project | null> {
     if (documents) {
+      // Creating a document adopts it, so whatever the editor is holding has to
+      // be in the *old* file before that happens — the same flush every other
+      // arrival does, for the same reason (D17). New… is reachable from the
+      // editor since F7, which is when this began to matter.
+      await flushAutosave()
       try {
         const created = await documents.createDocument(project)
         documentName.value = documents.name
@@ -528,16 +533,27 @@ export const useProjectsStore = defineStore('projects', () => {
     }
   }
 
-  /** Pretty-printed download payload for a project. */
+  /**
+   * What *Download* writes, and what *Save a Copy…* writes (D3, D4, F7).
+   *
+   * One payload for both, and one name: the document name main would give the
+   * same project — `Title Screen.vic20`, not a slug and not the compound v1
+   * extension. Both shells therefore produce a file the other opens, which is
+   * what D2 promises, and a copy saved out of the desktop editor is a document
+   * a double-click opens rather than something that has to be imported first.
+   *
+   * A copy of the *open document* is suggested under the document's own name
+   * rather than the project's. The two agree for anything this app created —
+   * main derives one from the other — and differ only for a file someone
+   * renamed in Finder, where the name on screen is the one the user knows it
+   * by. This is a suggestion for a save dialog, not a path: main still decides
+   * where anything lands (D8).
+   */
   async function exportProject(id: string): Promise<{ filename: string; json: string } | null> {
     const project = await projectById(id)
     if (!project) return null
-    const slug =
-      project.name
-        .toLowerCase()
-        .replace(/[^a-z0-9]+/g, '-')
-        .replace(/^-+|-+$/g, '') || 'project'
-    return { filename: `${slug}.vic20.json`, json: serializeProject(project) }
+    const named = current.value?.id === id ? (documentName.value ?? project.name) : project.name
+    return { filename: documentFileName(named), json: serializeProject(project) }
   }
 
   /** Mark the open project dirty and schedule a debounced autosave. */

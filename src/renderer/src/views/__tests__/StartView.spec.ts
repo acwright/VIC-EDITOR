@@ -11,6 +11,7 @@ import { useProjectsStore } from '@/stores/projects'
 import { createRepository } from '@/persistence/repository'
 import { fakeDocumentBridge, type FakeDocumentBridge } from '@/testing/documentBridge'
 import { fakeMigrationBridge, type FakeMigrationBridge } from '@/testing/migrationBridge'
+import { sampleAction } from '@shared/menu'
 import type { AppApi } from '@shared/api'
 
 const push = vi.fn<(to: string) => void>()
@@ -18,6 +19,8 @@ vi.mock('vue-router', () => ({ useRouter: () => ({ push: (to: string) => push(to
 
 let main: FakeDocumentBridge
 let migration: FakeMigrationBridge
+/** What the view subscribed to the native menu with (F7). */
+let menuAction: ((action: string) => void) | undefined
 
 function mountView() {
   const errors: unknown[] = []
@@ -31,13 +34,20 @@ beforeEach(() => {
   push.mockClear()
   main = fakeDocumentBridge()
   migration = fakeMigrationBridge()
+  menuAction = undefined
   localStorage.clear()
   vi.stubGlobal('api', {
     document: main.api,
     migration: migration.api,
     // The view reports what it offers as it mounts, and subscribes to the
     // native menu; neither is what this spec is about, but both have to be there.
-    menu: { setContext: vi.fn<() => void>(), onAction: () => () => {} },
+    menu: {
+      setContext: vi.fn<() => void>(),
+      onAction: (callback: (action: string) => void) => {
+        menuAction = callback
+        return () => {}
+      },
+    },
   } satisfies Partial<AppApi>)
   setActivePinia(createPinia())
   HTMLDialogElement.prototype.showModal = vi.fn<() => void>()
@@ -116,6 +126,27 @@ describe('StartView', () => {
     // The sample's own mode, under the name the dialog collected.
     expect(main.document?.name).toBe('My Copy')
     expect(main.document?.text).toContain('"type": "' + sample.build().type + '"')
+  })
+
+  // File ▸ New from Sample ▸ ends in the same dialog the cards do (F7). Main
+  // sends back the sample's own id, since the samples are the renderer's and
+  // main has never seen one.
+  it('opens the New dialog for a sample the File menu names', async () => {
+    const { wrapper } = mountView()
+    const sample = SAMPLES[1]!
+
+    menuAction?.(sampleAction(sample.id))
+    await flushPromises()
+
+    expect(wrapper.getComponent(NewProjectDialog).props('sample')).toEqual(sample)
+  })
+
+  it('ignores a menu action for a sample it does not have', async () => {
+    const { wrapper, errors } = mountView()
+    menuAction?.(sampleAction('no-such-sample'))
+    await flushPromises()
+    expect(errors).toEqual([])
+    expect(wrapper.getComponent(NewProjectDialog).props('modelValue')).toBe(false)
   })
 
   // *Open…* asks main for a document and is answered with nothing: what the

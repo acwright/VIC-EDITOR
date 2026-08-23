@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { MENU_ACTIONS } from '@shared/menu'
+import { MENU_ACTIONS, MENU_COMMANDS, sampleAction, sampleFromAction } from '@shared/menu'
+import { SAMPLES } from '@/samples'
 import { actionLabel, editorMenuContext, managerMenuContext } from '../menu'
 import { EDITOR_SHORTCUTS, MANAGER_SHORTCUTS, describeShortcut } from '../shortcuts'
 
@@ -68,6 +69,9 @@ const ACTIONS = [
   ...new Set([...EDITOR_SHORTCUTS, ...MANAGER_SHORTCUTS].map((entry) => entry.action)),
 ]
 
+/** The menu items backed by a key, which is all of them bar the commands. */
+const SHORTCUT_ITEMS = MENU_ACTIONS.filter((entry) => !entry.command)
+
 describe('isTitleCase', () => {
   // The checker below is the only thing standing between a menu title and the
   // help sheet's voice, so it is worth knowing it rejects what it should.
@@ -89,11 +93,20 @@ describe('isTitleCase', () => {
 
 describe('the menu table', () => {
   it('carries every editor and manager action exactly once', () => {
-    expect([...MENU_ACTIONS].map((entry) => entry.action).sort()).toEqual([...ACTIONS].sort())
+    expect(SHORTCUT_ITEMS.map((entry) => entry.action).sort()).toEqual([...ACTIONS].sort())
   })
 
   it('invents no action of its own', () => {
-    for (const entry of MENU_ACTIONS) expect(ACTIONS).toContain(entry.action)
+    for (const entry of SHORTCUT_ITEMS) expect(ACTIONS).toContain(entry.action)
+  })
+
+  // The menu's own commands (F7) are the one exception, and they are declared
+  // rather than assumed: an item marked `command` has to name one, and a
+  // command nobody put in the menu would be unreachable.
+  it('marks a command only where it declares one', () => {
+    const commands = MENU_ACTIONS.filter((entry) => entry.command).map((entry) => entry.action)
+    expect(commands.sort()).toEqual([...MENU_COMMANDS].sort())
+    for (const command of MENU_COMMANDS) expect(ACTIONS).not.toContain(command)
   })
 
   // The help sheet's descriptions are sentences ("Save now", "Fill the
@@ -135,7 +148,23 @@ describe('what the menu offers', () => {
   })
 
   it('lights the editor’s whole map while a project is open', () => {
-    expect(editorMenuContext().enabled).toEqual(EDITOR_SHORTCUTS.map((entry) => entry.action))
+    // Plus the two File-menu items that are not keys: New Project… works from
+    // the editor as well as the start screen, and Save a Copy… needs a project
+    // to copy (F7).
+    expect(editorMenuContext().enabled).toEqual([
+      ...EDITOR_SHORTCUTS.map((entry) => entry.action),
+      'newProject',
+      'saveCopy',
+    ])
+    // Nothing to copy on the start screen; New… is its own.
+    expect(managerMenuContext().enabled).not.toContain('saveCopy')
+  })
+
+  it('reports the samples New from Sample ▸ is built from', () => {
+    for (const context of [editorMenuContext(), managerMenuContext()]) {
+      expect(context.samples.map((sample) => sample.id)).toEqual(SAMPLES.map((s) => s.id))
+      expect(context.samples.map((sample) => sample.name)).toEqual(SAMPLES.map((s) => s.name))
+    }
   })
 
   it('sends a title for every item, from either view', () => {
@@ -186,5 +215,21 @@ describe('the desktop shell', () => {
     const browser = editorMenuContext().enabled
     asDesktop()
     expect(editorMenuContext().enabled).toEqual(browser)
+  })
+})
+
+/**
+ * *New from Sample ▸* carries a sample id rather than an action id (F7), so the
+ * two ends of that encoding are held together here.
+ */
+describe('sample menu actions', () => {
+  it('round-trips a sample id', () => {
+    for (const sample of SAMPLES) {
+      expect(sampleFromAction(sampleAction(sample.id))).toBe(sample.id)
+    }
+  })
+
+  it('leaves every other action alone', () => {
+    for (const entry of MENU_ACTIONS) expect(sampleFromAction(entry.action)).toBeNull()
   })
 })

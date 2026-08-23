@@ -29,6 +29,7 @@ import { useProjectsStore } from '@/stores/projects'
 import { downloadText } from '@/utils/download'
 import { managerMenuContext, onMenuAction, reportMenuContext } from '@/utils/menu'
 import { matchManagerShortcut, shortcutLabel, type ManagerAction } from '@/utils/shortcuts'
+import { words } from '@/utils/strings'
 import { pickProjectFile } from '@/utils/upload'
 
 const store = useProjectsStore()
@@ -223,7 +224,7 @@ function formatDate(iso: string): string {
         >
           <Keyboard class="size-4" />
         </AppButton>
-        <AppButton label="Upload Project" @click="upload()">
+        <AppButton :label="words('openProject')" @click="upload()">
           <Upload class="size-4" />
         </AppButton>
         <AppButton
@@ -304,7 +305,7 @@ function formatDate(iso: string): string {
             <AppButton label="Share Link" @click="startShare(summary)">
               <Share2 class="size-4" />
             </AppButton>
-            <AppButton label="Download" @click="download(summary.id)">
+            <AppButton :label="words('saveCopy')" @click="download(summary.id)">
               <Download class="size-4" />
             </AppButton>
             <AppButton label="Delete" @click="deleteTarget = summary">

@@ -100,7 +100,9 @@ describe('projects store', () => {
       const store = useProjectsStore()
       const project = (await store.create({ name: 'My Project!', type: 'hires' }))!
       const payload = (await store.exportProject(project.id))!
-      expect(payload.filename).toBe('my-project.vic20.json')
+      // The document name, not a slug and not the compound v1 extension: a
+      // download and a document are the same file now (D3, F7).
+      expect(payload.filename).toBe('My Project!.vic20')
 
       await store.remove(project.id)
       const imported = (await store.importProject(payload.json))!
@@ -226,7 +228,7 @@ describe('projects store', () => {
       const store = useProjectsStore()
       const saved = await drawnProject()
       const payload = (await store.exportProject(saved.id))!
-      expect(payload.filename).toBe('round-trip.vic20.json')
+      expect(payload.filename).toBe('Round Trip.vic20')
 
       await store.remove(saved.id)
       expect(serializeProject((await store.importProject(payload.json))!)).toBe(

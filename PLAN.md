@@ -21,7 +21,22 @@ persistence design — so this is one plan with a table of the handful of values
 
 ## Current Status
 
-- **Status: Phase F6 is complete.** A `v1.6` desktop user's projects are no
+- **Status: Phase F7 is complete.** The File menu is a document app's: New
+  Project…, New from Sample ▸, Open…, Open Recent ▸, Close Document, Save, Save
+  a Copy…, and Reveal in Finder under the name each platform gives it. New…
+  works from the editor as well as the start screen, so one composable owns the
+  New dialog and the store flushes into the old document before main adopts the
+  new one (D17). *Save a Copy…* is the menu's first command with no key, which
+  is why `MENU_COMMANDS` exists beside the shortcut-backed table. The words that
+  differ per shell are in `utils/strings.ts` — *Upload Project* / *Open…*,
+  *Download* / *Save a Copy…* — and a downloaded project is now
+  `Star Voyager.tms9918` in **both** shells (D3), named after the open document
+  where there is one. Share links made on the desktop are rooted at the
+  published Pages build rather than at `app://` (D21), which was a `v1.6`
+  defect. What is left is F8: the docs and the release. Two menu items — Open…
+  and Reveal — were driven only to their enabled state, for the reason the phase
+  notes give.
+- Phase F6 before it made sure a `v1.6` desktop user's projects are no
   longer trapped in browser storage. The first `v2.0` launch says what is about
   to happen, copies each project into the app's own folder in `~/Documents`
   (§9) — a name already taken gets a number, a project that cannot be read is
@@ -30,8 +45,7 @@ persistence design — so this is one plan with a table of the handful of values
   originals stay until *Remove Browser Copies* is pressed, and only the copies
   that were actually written are ever removed. The web build gains the honesty
   half of D20: the manager now says where projects live, what clearing browsing
-  data does, and where the desktop app is. Not yet done here: the desktop
-  wording and the File menu (F7), and the docs and release (F8).
+  data does, and where the desktop app is.
 - Phase F5 before it made the editor live in a git worktree without fighting
   it. A `git checkout` under a clean document reloads it in place and says so
   quietly; one under an unsaved edit asks, naming both versions, and writes
@@ -618,13 +632,13 @@ src/
 │   ├── recent.ts           new   recent documents in userData (D16)
 │   ├── migration.ts        new   write the copies, seed recents, hold the marker (D19)
 │   ├── windowState.ts            + the last document's path (D11)
-│   ├── menu.ts                   File menu: New…, Open…, Open Recent ▸, Close Document
-│   ├── dialogs.ts                unchanged — exports still go through it
+│   ├── menu.ts                   the File menu, Open… and Reveal among it (F7)
+│   ├── dialogs.ts                + the document type's own filter row (F7)
 │   └── index.ts                  launch-with-a-file, and reopen-last
 ├── preload/index.ts              + window.api.document
 ├── shared/
 │   ├── api.ts / ipc.ts           + the document surface and its channels
-│   ├── menu.ts                   + Close Document, and the File menu's new items
+│   ├── menu.ts                   + Close Document, Save a Copy…, the samples (D14, F7)
 │   └── document.ts         new   Stamp, request/response types
 └── renderer/src/
     ├── persistence/
@@ -641,6 +655,7 @@ src/
     ├── components/projects/
     │   ├── DocumentConflictDialog.vue  new  the two answers to a changed file (D7)
     │   └── MigrationDialog.vue  new  what is about to happen, then what did (D19)
+    ├── composables/newDocument.ts new  the New dialog, shared by the two views (F7)
     ├── views/
     │   ├── StartView.vue   new   the desktop launcher (D12)
     │   ├── ProjectManagerView.vue  untouched — the web build's home
@@ -1189,18 +1204,68 @@ single adapter cannot express, and why D1's one storage call site is left alone.
 
 **Goal:** the app says desktop words and offers desktop commands.
 
-- [ ] File menu: New…, New from Sample…, Open…, Open Recent ▸, Close Document, Save,
+- [x] File menu: New…, New from Sample…, Open…, Open Recent ▸, Close Document, Save,
       Save a Copy…, Reveal in Finder / Show in Explorer / Show in Files
-- [ ] `utils/strings.ts` — *Upload Project* → *Open…*, *Download* → *Save a Copy…*, and the
+- [x] `utils/strings.ts` — *Upload Project* → *Open…*, *Download* → *Save a Copy…*, and the
       editor header's "Back to Projects" → "Close Document". This is the wording fork the
       shell's own plan deferred; it stays out of the views
-- [ ] *Download* writes the bare extension in both shells (D3) — the file content already
+- [x] *Download* writes the bare extension in both shells (D3) — the file content already
       matches after F2; only the name the browser saves it under is still the v1 compound one
-- [ ] Share links from the desktop resolve against the published web app (D21)
+- [x] Share links from the desktop resolve against the published web app (D21)
 
-**Exit criteria:** every File menu item works from the menu in both apps; Open Recent survives
-a restart and drops files that were deleted; a share link copied on the desktop opens the web
-app with the project in it.
+**Exit criteria: met, bar two items driven only to their enabled state.** Read off the
+*live* menu of the running app rather than from the source: the File menu is New Project…,
+New from Sample ▸, Open…, Open Recent ▸ │ Close Document, Save, Save a Copy…, Reveal in
+Finder │ Close Window. On the start screen only the first group is live and the other four
+items are grey; with a document open all of them are live. Open Recent ▸ held the document
+the app had been given, plus Clear Menu, and survived a relaunch — which reopened it (D11).
+New from Sample ▸ ▸ Star Voyager opened the New dialog under the sample's own name with the
+location row filled in, and *Save a Copy…* opened a native save sheet whose Format row read
+"TMS9918 Project" — the filter row `dialogs.ts` picks from the bare extension.
+
+**What is not verified, and why.** *Open…* and *Reveal in Finder* were driven only as far as
+their enabled state: the machine's owner was working in another app throughout, and both
+items' clicks raise something in front of whatever is on screen. Both are main's own
+one-liners over functions the bridge already calls — `openDocumentDialog` is what F4 drove
+through the start screen's *Open…* button, and `revealDocument` is `shell.showItemInFolder`
+— so what F7 adds to them is the menu item and its enabled rule, which is the half that was
+read from the live menu. The suggested name in the save sheet was measured *before* the
+document-name change below and is covered by a spec afterwards, not by the sheet.
+
+**Things worth keeping:**
+
+- **A menu item that no key fires needs a table of its own.** Every item until now named a
+  shortcut action, and `menu.spec.ts` holds those two lists equal in both directions — which
+  is the property that stops the menu inventing commands. *Save a Copy…* is the first item
+  with no key, so it is declared in `MENU_COMMANDS` and marked `command: true`, and the spec
+  now checks three things instead of two: every shortcut appears exactly once, every command
+  is declared, and no command is secretly a shortcut. The alternative — a keyless entry in
+  `utils/shortcuts.ts` — would have put it in the help sheet and the README, which advertise
+  keys.
+- **The samples are the renderer's, so main is *told* them.** `MenuContext` grows `samples`
+  and each item sends back the sample's own id (`sample:<id>`). This is the same rule the
+  rest of the menu follows — the renderer answers, main renders the answer — and it means a
+  sample added to `src/renderer/src/samples/` appears in the menu with nothing else edited.
+- **Two views wanted the New dialog, so its state moved into a composable.**
+  `composables/newDocument.ts` is what makes File ▸ New Project… work from the editor as well
+  as the start screen, and it holds one more thing than the view did: `location` stays
+  `undefined` until a shell answers with one, which is exactly the condition the dialog shows
+  its location row on. No component branches on the shell (D13).
+- **Creating a document from the editor has to flush first.** `create` adopts the new
+  document in main, so the edit still in the autosave window would have landed in the *new*
+  file — the same swap `takePendingDocument` guards, and the reason `admit` now flushes on
+  the document path. F7 is the phase that made it reachable.
+- **A copy is named after the document, not the project inside it.** They agree for anything
+  this app made — main derives one from the other — and differ for a file renamed in Finder,
+  where the name on screen is the one the user knows it by. Measured in the running app: the
+  golden document `Star Voyager.tms9918` holds a project called `graphics1`, and the save
+  sheet offered `graphics1.tms9918` until this was fixed.
+- **The wording table does not carry `back`.** Its two words live in `src/shared/menu.ts`
+  because the File menu has an item for it and main has to be sent the same string the button
+  shows (D14). `utils/strings.ts` says so where a future session will look for it.
+- **Reveal's enabled state needs main to say when it changed.** The menu rebuilds on the
+  renderer's context report and on recents moving; *closing* a document moves neither, so
+  `document.ts` announces open/close and `index.ts` wires that to `buildMenu`.
 
 ### Phase F8 — Docs and release
 

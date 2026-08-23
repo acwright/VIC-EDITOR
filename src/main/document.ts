@@ -53,6 +53,22 @@ import { loadLastDocument, saveLastDocument } from './windowState'
 /** The document the app has open, or `null`. Main's answer, not the renderer's. */
 let openPath: string | null = null
 /**
+ * Told when a document is adopted or closed; wired to `buildMenu` in
+ * `index.ts` (F7).
+ *
+ * The File menu has two items that depend on there being a document at all —
+ * Reveal, and Close Document — and main is the side that knows. Opening one
+ * already rebuilds the menu through recents, but *closing* one moves nothing
+ * else, so without this the menu would keep offering Reveal for a document that
+ * is no longer open.
+ */
+let onOpenChange: (() => void) | null = null
+
+export function onOpenDocumentChanged(listener: () => void): void {
+  onOpenChange = listener
+}
+
+/**
  * What the file was when the app last read or wrote it.
  *
  * This is the stamp every write is measured against (D6). It moves only when
@@ -161,6 +177,7 @@ function adopt(path: string): OpenDocument {
   // is what the next launch reopens (D11).
   noteRecentDocument(resolved)
   saveLastDocument(resolved)
+  onOpenChange?.()
   return document
 }
 
@@ -208,7 +225,7 @@ function create(request: CreateDocumentRequest): DocumentResult<OpenDocument> {
  * one, so it ends where a double-click ends: pending, until the renderer has
  * flushed and asks for it (D15, D17).
  */
-async function open(parent: BrowserWindow | null): Promise<void> {
+export async function openDocumentDialog(parent: BrowserWindow | null = null): Promise<void> {
   const options = {
     properties: ['openFile' as const],
     defaultPath: currentLocation(),
@@ -325,9 +342,17 @@ function close(): void {
   // Closing a document is a decision: the next launch shows the start screen
   // rather than reopening what was deliberately put away (D11).
   saveLastDocument(null)
+  onOpenChange?.()
 }
 
-function reveal(): void {
+/**
+ * Show the open document in the platform's file manager.
+ *
+ * Reachable from the File menu as well as from the bridge (F7), which is why
+ * it is exported: the menu item is main's own — it acts on a path, and a path
+ * is the one thing the renderer never holds (D8).
+ */
+export function revealDocument(): void {
   if (openPath) shell.showItemInFolder(openPath)
 }
 
@@ -386,7 +411,7 @@ export function registerDocumentHandlers(): void {
     BrowserWindow.fromWebContents(event.sender)
 
   ipcMain.handle(IPC.DOCUMENT_CREATE, (_event, request: CreateDocumentRequest) => create(request))
-  ipcMain.handle(IPC.DOCUMENT_OPEN, (event) => open(parentOf(event)))
+  ipcMain.handle(IPC.DOCUMENT_OPEN, (event) => openDocumentDialog(parentOf(event)))
   ipcMain.handle(IPC.DOCUMENT_TAKE_PENDING, () => takePending())
   ipcMain.on(IPC.DOCUMENT_DROPPED, (_event, path: string) => requestOpen(path))
   ipcMain.handle(IPC.DOCUMENT_RECENT, () => recentDocuments())
@@ -394,7 +419,7 @@ export function registerDocumentHandlers(): void {
   ipcMain.handle(IPC.DOCUMENT_CURRENT, () => current())
   ipcMain.handle(IPC.DOCUMENT_WRITE, (_event, text: string, force: boolean) => write(text, force))
   ipcMain.handle(IPC.DOCUMENT_CLOSE, () => close())
-  ipcMain.handle(IPC.DOCUMENT_REVEAL, () => reveal())
+  ipcMain.handle(IPC.DOCUMENT_REVEAL, () => revealDocument())
   ipcMain.handle(IPC.DOCUMENT_DEFAULT_LOCATION, () => currentLocation())
   ipcMain.handle(IPC.DOCUMENT_CHOOSE_LOCATION, (event) => chooseLocation(parentOf(event)))
 }

@@ -6,13 +6,17 @@ import AppButton from '@/components/base/AppButton.vue'
 import HelpDialog from '@/components/HelpDialog.vue'
 import CharacterPanel from '@/components/editor/CharacterPanel.vue'
 import CharsetPicker from '@/components/editor/CharsetPicker.vue'
+import NewProjectDialog from '@/components/projects/NewProjectDialog.vue'
 import ProjectSettingsDialog from '@/components/editor/ProjectSettingsDialog.vue'
 import ScreenPanel from '@/components/editor/ScreenPanel.vue'
+import { useNewDocument } from '@/composables/newDocument'
 import { MODES } from '@/domain/modes'
 import { useEditorStore } from '@/stores/editor'
 import { useProjectsStore } from '@/stores/projects'
+import { downloadText } from '@/utils/download'
 import { actionLabel, editorMenuContext, onMenuAction, reportMenuContext } from '@/utils/menu'
 import { matchEditorShortcut, shortcutLabel, type EditorAction } from '@/utils/shortcuts'
+import { MENU_COMMANDS, type MenuCommand } from '@shared/menu'
 
 const props = defineProps<{ projectId: string }>()
 
@@ -89,6 +93,14 @@ const backLabel = computed(() => actionLabel('back'))
 const showSettings = ref(false)
 const showHelp = ref(false)
 
+/**
+ * File ▸ New Project… and File ▸ New from Sample ▸, which work here as well as
+ * on the start screen (F7). Opening the dialog is all this view does with them;
+ * the flush that has to happen before the new document replaces this one is the
+ * store's, where every other arrival's is (D17).
+ */
+const newDocument = useNewDocument()
+
 // Below lg the two columns become tabs (side by side at lg+ regardless)
 const activeTab = ref<'character' | 'screen'>('character')
 
@@ -136,6 +148,34 @@ const ACTIONS: Record<EditorAction, () => void> = {
   toggleAspect: () => editor.toggleAspect(),
 }
 
+/**
+ * The File menu's own commands — the ones no key fires (F7).
+ *
+ * Exhaustive over `MenuCommand` for the same reason `ACTIONS` is exhaustive
+ * over `EditorAction`: a command added to the menu table without a handler here
+ * is a type error rather than a dead menu item.
+ */
+const COMMANDS: Record<MenuCommand, () => void> = {
+  saveCopy: () => void saveCopy(),
+}
+
+/**
+ * *Save a Copy…* (D3, F7).
+ *
+ * The open document is untouched: this serializes what is in the editor and
+ * hands it to the shared download path, which is a save dialog on the desktop
+ * and a browser download in a tab. The name is the document one — `Title
+ * Screen.vic20` — because a copy of a project is a project file, and both
+ * shells write the same one.
+ */
+async function saveCopy(): Promise<void> {
+  const project = store.current
+  if (!project) return
+  const payload = await store.exportProject(project.id)
+  if (!payload) return
+  downloadText(payload.filename, payload.json, 'application/json')
+}
+
 function onKeydown(event: KeyboardEvent) {
   // Never fire while typing or while a dialog is open (Esc there closes it
   // natively). A focused canvas in cursor mode stops the keys it consumes from
@@ -167,7 +207,11 @@ let stopMenuAction: (() => void) | undefined
 onMounted(() => {
   reportMenuContext(editorMenuContext())
   stopMenuAction = onMenuAction((action) => {
-    if (action in ACTIONS) ACTIONS[action as EditorAction]()
+    // New Project… and New from Sample ▸ open the same dialog they do on the
+    // start screen, and it answers for both (F7).
+    if (newDocument.handles(action)) return
+    if (action in ACTIONS) return ACTIONS[action as EditorAction]()
+    if ((MENU_COMMANDS as readonly string[]).includes(action)) COMMANDS[action as MenuCommand]()
   })
 })
 onBeforeUnmount(() => stopMenuAction?.())
@@ -326,5 +370,16 @@ const saveError = computed(() => store.lastError)
     </main>
 
     <HelpDialog v-model="showHelp" />
+
+    <!-- Only ever opened from the File menu, so only ever on the desktop — but
+         the view does not say so: it binds a location the browser never
+         supplies, and the dialog shows the row only when there is one (D13). -->
+    <NewProjectDialog
+      v-model="newDocument.open.value"
+      v-model:location="newDocument.location.value"
+      :sample="newDocument.sample.value"
+      @choose-location="newDocument.chooseLocation()"
+      @create="newDocument.create($event)"
+    />
   </div>
 </template>
