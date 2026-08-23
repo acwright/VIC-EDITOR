@@ -21,9 +21,16 @@ persistence design — so this is one plan with a table of the handful of values
 
 ## Current Status
 
-- **Status: written, nothing built.** No phase has started and none of the spikes in §6 has
-  been run. §5 is measured; everything else here is design intent, and as phases land this
-  section records which parts became measurements.
+- **Status: Phase F0 is complete, and no production code has changed.** All five spikes in
+  §6 have been run; §6 is now measurements rather than assumptions, and the two things it
+  found that this document had wrong are recorded there (macOS gets no exported UTI, and a
+  watch on the open *file* is single-shot). Both repos are still `v1.6.1` with clean trees:
+  the spikes' temporary `fileAssociations` and instrumentation were reverted on purpose, so
+  that neither app declares a document type it cannot yet open. F4 adds the declaration and
+  the handler together.
+- **S1 is GO on macOS and Linux and unverified on Windows**, so §3's decision stands and is
+  not reopened. Windows is the one platform where the double-click is still taken on trust,
+  and it is a real Windows job (§6, §11).
 - **Last updated:** 2026-08-23
 - Baseline: `v1.6.1` in both repos. Electron 43.4.1, `electron-vite@6.0.0-beta.1`, Vite 8,
   Vue 3 + Pinia, `vue-router` 5.
@@ -194,49 +201,172 @@ Two conclusions:
 
 ---
 
-## 6. Questions to settle first
+## 6. Questions settled
 
-Spikes, run before the phase that depends on each. Nothing below is measured yet. When one
-is run, its result and what it rules out get written back here.
+All five spikes were run on **2026-08-23**: macOS 26.5.2 (arm64), Electron 43.4.1, Node
+26.4.0, git 2.50.1, Wine 11.0, and Debian bookworm under Docker. Each was run against both
+repos where the answer could differ. What follows is what was measured; where something
+could not be measured, it says so rather than rounding up.
 
-### S1 — Do file associations work, end to end, on all three platforms? *(before F4)*
+### S1 — Do file associations work, end to end, on all three platforms? — **GO**
 
-**Go/no-go for the whole round.** The double-click is what this plan traded the project list
-for; without it the trade was for nothing. electron-builder's `fileAssociations` covers macOS
-(`CFBundleDocumentTypes` plus an exported UTI), Windows (NSIS registry entries) and Linux (a
-MIME type and the `.desktop` entry). Verify by **double-clicking a real document** in each
-platform's file manager: from a cold start, and again while the app is already running with
-another document open.
+**macOS — verified in the running app.** `fileAssociations` produces a
+`CFBundleDocumentTypes` entry with the bare extension, `CFBundleTypeRole: Editor` and
+`LSHandlerRank: Owner`. Opening a document through LaunchServices — the same binding a
+Finder double-click resolves — launched the app from a cold start *and* delivered a second
+document to the already-running instance. `NSWorkspace.urlForApplication(toOpen:)`, the API
+Finder consults to pick a handler, resolved the document to the app.
 
-### S2 — Does macOS `open-file` arrive before `whenReady`? *(before F4)*
+Two things the spike found that the plan had wrong or had not considered:
 
-A double-click on a cold start races window creation. Assume the event must be queued and
-replayed once the window exists until measured — the failure mode is "the first double-click
-does nothing", which this plan cannot ship with.
+- **electron-builder emits no `UTExportedTypeDeclarations`** — only `CFBundleDocumentTypes`.
+  This spike's own premise ("plus an exported UTI") was wrong. The association still works,
+  but the document resolves to a *dynamic* UTI (`dyn.ah62d4rv4ge81k5pxhe6xcsa`), which is a
+  type with no name and no identity of its own. **F4 must declare the UTI from §9 through
+  `mac.extendInfo`** if the document type is to be named and to carry its own icon.
+- **Paths arrive fully resolved.** `open-file` delivered `/private/tmp/…`, not `/tmp/…`, and
+  S5's drop path resolves the same way. Anything that compares a remembered path with an
+  incoming one — recents, "is this already open?", the stamp guard — must compare resolved
+  paths or it will miss matches.
 
-### S3 — What sees a `git checkout` under the editor? *(before F5)*
+**Linux — verified against an installed package, short of a GUI click.** The deb carries a
+`.desktop` entry with `MimeType=application/x-…-project;` and `Exec="…" %U`, plus a MIME
+package declaring `<glob pattern="*.tms9918"/>` / `*.vic20`. After the `update-mime-database`
+and `update-desktop-database` a real install runs, `xdg-mime query filetype` returned the
+project MIME type and `xdg-mime query default` returned the editor's `.desktop` file, and the
+entry passes `desktop-file-validate`. What was **not** measured is an actual double-click in
+a GUI file manager — the container has no desktop session — but the two queries above are
+precisely what a file manager consults.
 
-Branch switching is the workflow this round exists for, and it is where a file changes under
-an open document. Candidates: `fs.watch` on the open file, versus polling `stat` on window
-focus plus a low-frequency tick while focused. Run a real `git checkout` of a branch that
-changes the open document, on macOS at minimum, and record whether `fs.watch` fires, how
-often, with which event name, and whether it survives git's rename dance. **Focus + `stat`
-ships either way** — a watcher is an optimisation on top of it, never the only mechanism.
+**Windows — not measured, and it is the one platform still open.** The NSIS installer builds
+under Wine but cannot be *run* there: it exited 0 and installed nothing, which is
+`CLAUDE.md`'s standing example rather than a new finding. Modern 7-Zip no longer decompiles
+NSIS scripts, so the compiled artifact could not be inspected either. At source level,
+electron-builder emits a `registerFileAssociations` macro whenever `fileAssociations` is
+non-empty, `installSection.nsh` inserts it unconditionally, and `APP_ASSOCIATE` writes the
+extension and its file class under `SHELL_CONTEXT\Software\Classes`. Worth noting because the
+documentation misleads: electron-builder's own docs say associations "work only if
+`nsis.perMachine` is set to `true`", and the code does not say that — with `oneClick: false`
+the assisted installer already establishes the shell context. **Testing this is a real
+Windows job**, and it is the one part of S1 taken on trust.
 
-### S4 — What does a bare extension cost in practice? *(before F3)*
+**A cost D3 should state plainly:** the legacy compound extension is associated *nowhere*.
+`.tms9918.json` / `.vic20.json` resolves to `application/json` on Linux and to whatever owns
+`.json` on macOS (Xcode, on the machine this was run on). Legacy files open through *Open…*
+and by drag-and-drop, and never by double-click. That is a consequence of D3, not a defect —
+but it is the honest half of "existing files stay valid forever".
 
-Confirm what D3 assumes: that `git` still treats `.tms9918` as text (it decides by content,
-not extension), that `git diff` renders it normally, and what VS Code and GitHub do with it
-unaided. The answer decides whether D3 should recommend a one-line `.gitattributes` in the
-user's own repository — not whether the plan works.
+### S2 — Does macOS `open-file` arrive before `whenReady`? — **Yes. It must be queued.**
 
-### S5 — Is `webUtils.getPathForFile` the drag-and-drop path on Electron 43? *(before F4)*
+Measured on a cold start, with the handler registered at module scope:
 
-`File.path` was removed from Electron some releases ago and `webUtils.getPathForFile` is the
-replacement, called from the preload. Confirm the API and where it must run before building
-the drop handler on it.
+```
++  0ms  module eval             argv=[]   ready=false
++ 18ms  will-finish-launching
++ 72ms  open-file  …/Star Voyager.tms9918   app.isReady()=false   window=false
++ 72ms  whenReady RESOLVED
+```
 
----
+The VIC-20 editor produced the same shape (`open-file` at +81ms). Three consequences:
+
+- **`open-file` fires before `whenReady` and before any window exists.** The plan's working
+  assumption was right and is now a measurement: **queue the path and replay it once the
+  window exists.** The failure mode this rules out — "the first double-click does nothing" —
+  is real and would have shipped without the queue.
+- **The handler must be registered at module scope.** Registering it inside
+  `whenReady().then()` would miss the cold-start event entirely.
+- **`argv` is empty on macOS.** The document arrives *only* through `open-file`. argv is the
+  Windows and Linux mechanism (`Exec=… %U`), never macOS's — so D15's one code path must not
+  read argv on darwin, or a cold-start double-click would open nothing.
+
+Opening a second document while the app was already running delivered `open-file` with
+`app.isReady()=true` and a window present, to the same instance — no second process.
+
+### S3 — What sees a `git checkout`? — **Watch the directory, not the file.**
+
+Ten trials per row, on macOS/APFS, against a real repository whose branches differ in the
+open document:
+
+| | reported the checkout | still alive for the *next* write |
+| --- | --- | --- |
+| `fs.watch(<the document>)` | 10/10 | **0/10** |
+| `fs.watch(dirname(document))` | 10/10 | 10/10 |
+
+- **git replaces the document rather than rewriting it** — the inode changes across a branch
+  switch — and a watch on the file is therefore **single-shot**: it reports the checkout that
+  kills it and then sees nothing, silently, forever. That is worse than unreliable, and it is
+  why a file watcher cannot be the mechanism.
+- **A non-recursive watch on `dirname(document)`, filtered by basename, survives everything
+  and is quiet.** One branch switch touching 21 files produced exactly **2** events, both
+  naming the document, **0** from `.git/` and **0** from `src/` — subdirectory churn does not
+  reach a non-recursive watch.
+- **Event names carry no information on macOS.** FSEvents reports `rename` even for an
+  in-place write. Filter on the filename and treat every event as "re-stat", never as a
+  description of what happened.
+- **Arm latency is not a concern**: a write 0 ms after `fs.watch()` was still seen.
+- **`{mtimeMs, size}` is a usable stamp.** Six same-size writes back to back produced six
+  distinct `mtimeMs` values, 0.13–0.72 ms apart (APFS keeps sub-millisecond granularity), so
+  D6 needs no content hash. This is an APFS answer: HFS+'s one-second granularity would not
+  be enough, which is worth remembering rather than relying on.
+- `git stash`, `git checkout .`, deleting the file and recreating it all produced directory
+  events and a `stat` change.
+
+**Focus + `stat` still ships regardless**, exactly as the plan said. The directory watcher is
+an optimisation on top of it. Two implementation notes it earns: the watch is per *directory*,
+so it must be re-armed when the open document moves to another one, and a watcher's event is
+a hint to re-stat, never evidence of what changed.
+
+### S4 — What does a bare extension cost in practice? — **Highlighting only.**
+
+- **git treats it as text, and D4's format pays off.** A 295-line document with one
+  character's pattern changed produced a **one-line diff**; `git diff --numstat` reported
+  `1  1`, not the `-  -` it prints for binary. The document holds zero NUL bytes, so git's
+  binary heuristic never trips, and `* text=auto eol=lf` applies exactly as it does to any
+  other file in the repo.
+- **VS Code 1.134.0 shows it as Plain Text.** Nothing in the bundled extension set claims
+  `.tms9918` or `.vic20`; the `json` extension claims `.json` and twelve others. So a
+  document opens with no highlighting, no folding and no bracket matching. The user's fix is
+  `"files.associations": { "*.tms9918": "json" }`.
+- **GitHub renders it as plain text.** Linguist's current `languages.yml` declares neither
+  extension, so a document is shown unhighlighted and excluded from the repository's language
+  statistics. The `linguist-language` override is documented in linguist's `overrides.md`,
+  and git honours the attribute — `git check-attr` returned `linguist-language: JSON` with
+  the one-line rule in place. **Not verified:** GitHub's actual rendering, which needs a
+  pushed repository.
+- The legacy `.tms9918.json` keeps JSON treatment everywhere, since `.json` is claimed by
+  both linguist and VS Code.
+
+**So D3 stands, and should recommend** `*.tms9918 linguist-language=JSON` in the user's own
+`.gitattributes` — one documented line, still never written by the app.
+
+### S5 — `webUtils.getPathForFile` on Electron 43 — **Yes, from the preload.**
+
+Measured against a **real drop**, synthesized through the debugger's
+`Input.dispatchDragEvent` with a file path and cross-checked with `DOM.setFileInputFiles`, on
+Electron 43.4.1 in the app's real posture (ESM preload, `contextIsolation: true`,
+`sandbox: false`):
+
+- `webUtils` is **`undefined` in the main process** — it is a renderer-side export, so main
+  cannot call it.
+- In the **preload** it is an object and `getPathForFile` is a function. It returned the
+  correct absolute path for a genuinely dropped file, including one whose name contains a
+  space.
+- The isolated renderer world has no `require` and no electron global, so it cannot reach
+  `webUtils` itself. **The call therefore happens in the preload and only the resulting
+  string crosses the bridge** — which is exactly D8's shape: the renderer never derives a
+  path, it forwards one the user just produced.
+- `File.path` is `undefined`, confirming it is gone.
+- The path comes back fully resolved, as in S1.
+
+### A harness note worth keeping
+
+Every macOS launch measurement failed at first in a way that looked like a broken app: the
+icon bounced in the Dock and the process exited cleanly, with no window, no log and no crash
+report. The cause was **`ELECTRON_RUN_AS_NODE=1` set in the shell that ran the spike** —
+which `CLAUDE.md` already warns about for `npm run dev`, but which also poisons `open`: the
+launched app runs as plain Node and exits immediately. `env -u ELECTRON_RUN_AS_NODE open
+<file>` is the fix. Any future launch test should compare `launchctl getenv
+ELECTRON_RUN_AS_NODE` with the shell's own value before concluding anything about the app.
 
 ## 7. Confirmed decisions
 
@@ -497,16 +627,22 @@ disk.
 
 **Goal:** the five questions in §6 answered, and §6 rewritten with what was measured.
 
-- [ ] S1 — double-click on all three platforms, cold start and running app
-- [ ] S2 — macOS `open-file` versus `whenReady`
-- [ ] S3 — what sees a `git checkout`, on macOS at minimum
-- [ ] S4 — what a bare extension costs in git, VS Code and GitHub
-- [ ] S5 — `webUtils.getPathForFile` on Electron 43
+- [x] S1 — double-click on all three platforms, cold start and running app
+- [x] S2 — macOS `open-file` versus `whenReady`
+- [x] S3 — what sees a `git checkout`, on macOS at minimum
+- [x] S4 — what a bare extension costs in git, VS Code and GitHub
+- [x] S5 — `webUtils.getPathForFile` on Electron 43
 
-**Exit criteria:** every assumption in §6 is a measurement or a documented failure to
-measure. **S1 is go/no-go**: without the double-click this plan has given up the project list
-for nothing, and the decision in §3 should be reopened with the user rather than worked
-around.
+**Exit criteria: met.** §6 is measurements, and the one thing that could not be measured —
+the Windows double-click, because the NSIS installer cannot run under Wine — says so in
+place of a claim. **S1 came back GO**: the double-click works from a cold start and against
+a running app on macOS, and the MIME association resolves to the editor on Linux, so the
+trade §3 made stands and is not reopened.
+
+What F0 changed downstream, all recorded in §6 and carried into the phases that own them:
+F4 must declare the macOS UTI itself and must queue `open-file`, and must not read `argv` on
+darwin; F5's detection watches the document's *directory*, never the document; D3 gains the
+fact that legacy `.json`-suffixed files never double-click anywhere.
 
 ### Phase F1 — The storage port (renderer only, no behaviour change)
 
@@ -579,9 +715,13 @@ corrupt file reports why rather than opening blank.
 **Goal:** the operating system opens the editor when a project file is opened.
 
 - [ ] Document icon: a second master and a second `gen-icon` output
-- [ ] `fileAssociations` in `electron-builder.yml` for all three platforms
+- [ ] `fileAssociations` in `electron-builder.yml` for all three platforms, **plus the macOS
+      UTI from §9 via `mac.extendInfo`** — electron-builder emits only `CFBundleDocumentTypes`,
+      so without this the document type is an unnamed dynamic UTI (S1)
 - [ ] `openRequests.ts` — `open-file`, `argv`, `second-instance`, drag-and-drop, all reduced
-      to one main→renderer message (D15); macOS queueing per S2; the drop path per S5
+      to one main→renderer message (D15); macOS **queues `open-file` until the window exists**
+      and never reads `argv` (S2); the drop path calls `webUtils.getPathForFile` in the
+      preload (S5)
 - [ ] Opening a document while one is open flushes the current one first, then replaces it
 - [ ] Reopen-the-last-document on launch (D11), and recents (D16) in the File menu and on the
       start screen
@@ -595,7 +735,9 @@ and relaunching returns to it; the document icon is what Finder and Explorer sho
 
 **Goal:** switching branches under the editor does the right thing, in both directions.
 
-- [ ] Detection per S3: focus + `stat` always; a watcher only if the spike earned it
+- [ ] Detection per S3: focus + `stat` always; a non-recursive `fs.watch` on the document's
+      **directory**, filtered by basename — a watch on the file itself is single-shot and
+      dies at the first `git checkout`
 - [ ] The stamp guard on every write, and the conflict answer it returns (D6)
 - [ ] Clean document + changed file → reload in place, with a quiet "Reloaded from disk"
 - [ ] Dirty document + changed file → a dialog naming both sides; taking the file discards
