@@ -24,6 +24,7 @@ import { createProject, type CreateProjectOptions } from '@/domain/factory'
 import {
   ProjectValidationError,
   deserializeProject,
+  projectContentHash,
   serializeProject,
 } from '@/domain/serialization'
 import { encodeShare, shareUrl } from '@/domain/share'
@@ -48,6 +49,13 @@ export const useProjectsStore = defineStore('projects', () => {
   let saveChain: Promise<boolean> = Promise.resolve(true)
   /** Bumped by every open/close, so a load that lost the race can tell. */
   let openToken = 0
+  /**
+   * Content hash of the open project as it was last stored (D5). An autosave
+   * tick that hashes the same writes nothing at all — against a git worktree
+   * that is the difference between a file whose mtime churns while `git diff`
+   * shows nothing, and one that moves only when the project does.
+   */
+  let storedHash: string | null = null
 
   async function refresh(): Promise<void> {
     summaries.value = await library.list()
@@ -86,6 +94,7 @@ export const useProjectsStore = defineStore('projects', () => {
     const project = await library.load(id)
     if (token !== openToken) return project // a newer open won; leave its result standing
     current.value = project
+    storedHash = project ? projectContentHash(project) : null
     saveState.value = 'saved'
     return project
   }
@@ -95,6 +104,7 @@ export const useProjectsStore = defineStore('projects', () => {
     await flushAutosave()
     if (token !== openToken) return
     current.value = null
+    storedHash = null
     saveState.value = 'saved'
   }
 
@@ -109,7 +119,12 @@ export const useProjectsStore = defineStore('projects', () => {
       lastError.value = 'Renaming the project failed.'
       return false
     }
-    if (current.value?.id === id) current.value.name = name
+    if (current.value?.id === id) {
+      current.value.name = name
+      // The flush above landed everything else, so the stored copy and the open
+      // one now agree and the next autosave tick has nothing to write (D5).
+      storedHash = projectContentHash(current.value)
+    }
     await refresh()
     return true
   }
@@ -133,6 +148,7 @@ export const useProjectsStore = defineStore('projects', () => {
     await library.remove(id)
     if (current.value?.id === id) {
       current.value = null
+      storedHash = null
       saveState.value = 'saved'
     }
     await refresh()
@@ -215,9 +231,17 @@ export const useProjectsStore = defineStore('projects', () => {
   async function writeCurrent(): Promise<boolean> {
     const project = current.value
     if (!project) return true
+    // D5: nothing to write, so nothing is written — and `modifiedAt` is not
+    // stamped, because it moves only when content moves.
+    const hash = projectContentHash(project)
+    if (hash === storedHash) {
+      if (current.value === project) saveState.value = 'saved'
+      return true
+    }
     saveState.value = 'saving'
     project.modifiedAt = new Date().toISOString()
     const ok = await persist(project)
+    if (ok) storedHash = hash
     // A save that finished after the project was closed or replaced must not
     // relabel the indicator for whatever is on screen now.
     if (current.value === project) saveState.value = ok ? 'saved' : 'unsaved'

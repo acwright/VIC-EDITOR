@@ -21,16 +21,19 @@ persistence design — so this is one plan with a table of the handful of values
 
 ## Current Status
 
-- **Status: Phase F1 is complete.** Storage in both repos is behind the async
-  `ProjectStore` / `ProjectLibrary` port (D1), with `localStorage` still the only
-  implementation; the Pinia store, the two views and the before-quit path are async
-  throughout and both builds behave exactly as they did. Nothing has been written to a file
-  yet and nothing under `src/main/` changed, apart from `onBeforeQuit` accepting an async
-  callback. Phase F0 before it left §6 as measurements rather than assumptions, including
-  the two things this document had wrong (macOS gets no exported UTI, and a watch on the
-  open *file* is single-shot); the spikes' temporary `fileAssociations` were reverted on
-  purpose, so that neither app declares a document type it cannot yet open — F4 adds the
-  declaration and the handler together.
+- **Status: Phase F2 is complete.** Both repos now have one serialization —
+  `serializeProject`, git-first per D4 — behind downloads today and behind F3's disk writes
+  tomorrow, with golden documents per mode holding the format still. The save path hashes
+  the project excluding `modifiedAt` and returns early when nothing moved (D5), so a project
+  nobody edited is not written and its stamp does not churn. §5 is re-measured with the real
+  serializer and two of its numbers changed (§5). Still nothing written to a file, and still
+  nothing under `src/main/` beyond F1's async `onBeforeQuit`.
+- Phase F1 before it put storage behind the async `ProjectStore` / `ProjectLibrary` port
+  (D1), with `localStorage` still the only implementation. Phase F0 before *that* left §6 as
+  measurements rather than assumptions, including the two things this document had wrong
+  (macOS gets no exported UTI, and a watch on the open *file* is single-shot); the spikes'
+  temporary `fileAssociations` were reverted on purpose, so that neither app declares a
+  document type it cannot yet open — F4 adds the declaration and the handler together.
 - **S1 is GO on macOS and Linux and unverified on Windows**, so §3's decision stands and is
   not reopened. Windows is the one platform where the double-click is still taken on trust,
   and it is a real Windows job (§6, §11).
@@ -174,33 +177,54 @@ item.
 
 ---
 
-## 5. Measured before writing
+## 5. Measured
 
-What a document costs to write, since autosave writes one every 500 ms of editing. Measured
-on synthesized **full-size** projects — every charset full, every screen full — formatted by
-a stand-in implementation of D4's rules in plain node. **Not the running app**, so this is
-the shape of the answer rather than the answer; Phase F2 re-measures with the real
-serializer.
+What a document costs to write, since autosave writes one every 500 ms of editing.
+**Re-measured in Phase F2 with the shipped `serializeProject`**, through each repo's own
+vitest runner, on synthesized **full-size** projects — every character filled, every screen
+cell set. These numbers replace F0's, which came from a stand-in implementation of D4's
+rules in plain node; the shape held, the sizes and the times did not.
+
+TMS9918 Editor:
 
 | Project | Lines | Formatted | Compact | Format time |
 | --- | --- | --- | --- | --- |
-| Graphics II independent (3 charsets, 1 screen) | 1,594 | 141 KB | 125 KB | 0.4 ms |
-| Graphics II mirrored (1 charset, 2 screens) | 591 | 54 KB | 46 KB | 0.1 ms |
-| Graphics I (1 charset, 1 screen) | 301 | 13 KB | 10 KB | < 0.1 ms |
-| Text (1 charset, 1 screen 40×24) | 301 | 13 KB | 10 KB | < 0.1 ms |
-| Multicolor (1 screen 64×48) | 67 | 15 KB | 11 KB | < 0.1 ms |
+| Graphics II independent (3 charsets, 1 screen) | 1,596 | 169 KB | 115 KB | 5.6 ms |
+| Graphics II mirrored (1 charset, 2 screens) | 593 | 61 KB | 41 KB | 2.0 ms |
+| Graphics I (1 charset, 1 screen) | 336 | 13 KB | 8 KB | 0.4 ms |
+| Text (1 charset, 1 screen 40×24) | 304 | 12 KB | 8 KB | 0.5 ms |
+| Multicolor (1 screen 64×48) | 68 | 10 KB | 6 KB | 0.4 ms |
+| Sprite (256 patterns, no screen) | 301 | 10 KB | 6 KB | 0.4 ms |
 
-Two conclusions:
+VIC-20 Editor — smaller documents throughout: one charset, one screen, and no colour table
+to speak of, so nothing here approaches Graphics II's three sets of per-row colour pairs.
 
-1. **Write cost is a non-issue.** The largest document any mode can produce formats in
-   0.4 ms and writes in well under a millisecond, against a 500 ms autosave debounce. There
-   are three orders of magnitude of headroom, and D5's elision means most autosave ticks
-   write nothing at all.
+| Project | Lines | Formatted | Compact | Format time |
+| --- | --- | --- | --- | --- |
+| Mixed, 256 chars × 16 rows, 22 × 23 screen | 353 | 21 KB | 14 KB | 0.7 ms |
+| Hires, 256 chars × 8 rows, 22 × 23 screen | 335 | 12 KB | 8 KB | 0.4 ms |
+| Hires, 64 chars × 8 rows, 20 × 12 screen | 121 | 4 KB | 3 KB | 0.1 ms |
+
+Three conclusions:
+
+1. **Write cost is a non-issue, with an order of magnitude less headroom than F0 thought.**
+   The largest document either app can produce formats in **5.6 ms**, not 0.4 — the real
+   serializer walks the tree and builds strings where the stand-in did not. D5's hash
+   serializes a second time, so an autosave tick that *writes* costs ~11 ms against a 500 ms
+   debounce. That is still 45× headroom, on the largest document of the more complex of the
+   two apps, and D5's elision means most ticks serialize once and write nothing at all. Not
+   a concern; worth knowing it is 45× and not 1,000×.
 2. **D4's chunking is load-bearing, not cosmetic.** The same Graphics II project through a
-   naive `JSON.stringify(p, null, 2)` is **34,596 lines and 0.50 MB**; chunked to one
-   character and one screen row per line it is **1,594 lines and 141 KB**. 22× fewer lines,
-   3.5× smaller, and only 13% larger than compact JSON. That ratio is why the format rules
-   are written the way they are and not "just pretty-print it".
+   naive `JSON.stringify(p, null, 2)` is **34,596 lines and 0.49 MB**; chunked to one
+   character and one screen row per line it is **1,596 lines and 169 KB**. 22× fewer lines
+   and 3.0× smaller. It is 47% larger than compact JSON rather than F0's guessed 13% —
+   indentation and the space after every comma cost more than the stand-in charged for —
+   and 47% of a document nobody will notice is the right trade for 22× fewer lines.
+3. **The one-character edit is a two-line diff, not a one-line diff.** `git diff --numstat`
+   on a Graphics II document before and after one character's pattern changed reported
+   `2 2` — the character, and `modifiedAt`. The second line is D5 working as intended
+   (`modifiedAt` moves when content moves) rather than noise, and `2 2` rather than `- -`
+   is git confirming it reads the document as text (S4).
 
 ---
 
@@ -417,10 +441,11 @@ the app does not write for them (S4 confirms the rest).
 used by disk writes and by *Save a Copy…* alike:
 
 - 2-space indent, LF, trailing newline (both repos are `* text=auto eol=lf`).
-- **Keys in a fixed order** — `version, id, name, type, createdAt, modifiedAt, settings,
-  charsets, colors, screens, animations`. `JSON.stringify` preserves insertion order, so
-  without this the same project serializes differently depending on whether it came from
-  `createProject` or from a file someone else wrote.
+- **Keys in a fixed order** — the schema's own order, which is the one place the two apps'
+  documents differ (§9). `JSON.stringify` preserves insertion order, so without this the
+  same project serializes differently depending on whether it came from `createProject` or
+  from a file someone else wrote. A key the order does not name is kept, after the ones it
+  does, sorted — a hand-edited document must not lose anything by being reformatted.
 - **One character per line**: a pattern's 8 bytes stay on one line, `[0, 60, 66, …]`. A
   charset is then 256 lines and a diff names the characters that changed.
 - **One screen row per line**: `cells` chunked at the mode's column count, so a row of the
@@ -607,6 +632,7 @@ identical for both.
 | Migration target folder | `~/Documents/TMS9918 Editor` | `~/Documents/VIC-20 Editor` |
 | Published web app (D21 share root) | GitHub Pages URL for `TMS9918-EDITOR` | GitHub Pages URL for `VIC-EDITOR` |
 | Screen row chunking (D4) | the mode's column count (40 / 32 / 64) | `settings.columns` |
+| Document key order (D4) | `… settings, charsets, colors, screens, animations` | `… settings, charset, charModes, screens` |
 | Storage key prefix (web + preferences, unchanged) | `tms9918-editor:` | `vic20-editor:` |
 | Current version | `1.6.1` | `1.6.1` |
 
@@ -622,9 +648,10 @@ set from a second master.
 ## 10. Phases
 
 Nine phases. Each leaves both builds green and shippable; no phase needs a later one to make
-the repo work again. F1 and F2 are renderer-only and change no behaviour — deliberately, so
-the async conversion and the format change are each verified alone before anything touches a
-disk.
+the repo work again. F1 and F2 are renderer-only — deliberately, so the async conversion and the
+format change are each verified alone before anything touches a disk. Neither changes what a
+user sees; F2 does change what a *download* contains, and what an idle autosave tick does,
+which is the point of it.
 
 ### Phase F0 — Spikes
 
@@ -709,20 +736,67 @@ What F1 settled, for the phases that inherit it:
 **Goal:** one serialization, formatted for diffs, used by downloads now and by disk writes in
 F3.
 
-- [ ] `serializeProject` per D4: fixed key order, one character per line, one screen row per
+- [x] `serializeProject` per D4: fixed key order, one character per line, one screen row per
       line, LF, trailing newline
-- [ ] Round-trip specs: `deserialize(serialize(p))` deep-equals `p`, and
+- [x] Round-trip specs: `deserialize(serialize(p))` deep-equals `p`, and
       `serialize(deserialize(text))` is byte-identical to `text` for a file the app wrote
-- [ ] Stability spec: two projects built the same way serialize identically regardless of key
+- [x] Stability spec: two projects built the same way serialize identically regardless of key
       insertion order
-- [ ] A golden file per mode in both repos, so a formatting regression shows up as a diff
-- [ ] Re-measure §5's table with the real serializer and update it
-- [ ] Content hash excluding `modifiedAt`, and D5's early return, in the store
-- [ ] `saveCurrent()` stops stamping `modifiedAt` unconditionally
+- [x] A golden file per mode in both repos, so a formatting regression shows up as a diff
+- [x] Re-measure §5's table with the real serializer and update it
+- [x] Content hash excluding `modifiedAt`, and D5's early return, in the store
+- [x] `saveCurrent()` stops stamping `modifiedAt` unconditionally
 
-**Exit criteria:** a project downloaded from the web build and one written by the desktop app
-are byte-identical; editing one character and saving produces a one-line diff; saving a
-project nobody edited produces no write at all.
+**Exit criteria: met, with one number corrected.** Both repos: full suite green (TMS9918 553,
+VIC-20 643), `oxlint`, `eslint`, `vue-tsc --build`, `npm run build` and `npm run build:web`
+all green. Saving a project nobody edited produces no write at all — asserted against a spy
+on `localStorage.setItem`, with `modifiedAt` unmoved. Editing one character and saving
+produces a **two**-line diff, not the one-line diff this phase asked for: the character and
+`modifiedAt`, measured with `git diff --numstat` (§5). That second line is D5 doing what it
+says rather than a defect, and it is the honest number.
+
+**Verified in the running desktop app**, the standard `CLAUDE.md` sets, in both repos: a
+project seeded into a throwaway profile, opened in the built app, then ⌘S twice with no edit
+— `modifiedAt` in storage did not move. The **negative control** ran in the same session:
+Fill on the same character wrote the pattern and moved the stamp, so the check can tell a
+working elision from a broken save. F1's harness carried over unchanged, `pushState` +
+`popstate` and all.
+
+**Half of the first criterion cannot be checked yet, and is not claimed.** "A project
+downloaded from the web build and one written by the desktop app are byte-identical" has no
+desktop write until F3; what is true today is that both shells reach the same
+`serializeProject`, and there is one of them.
+
+What F2 settled, for the phases that inherit it:
+
+- **The formatter is table-driven, not a chain of special cases.** Two maps keyed by node
+  path — `KEY_ORDER` and `LAYOUT` — and one `render` walk. What is *absent* from `LAYOUT`
+  carries the rule: a character's pattern bytes and a Graphics II character's eight colour
+  pairs fall through to the inline default, and that is what puts one character on one line.
+  The only per-project value is the screen wrap width, which is why `serializeProject` builds
+  its layout map per call.
+- **Unknown keys survive.** Listed keys serialize in their listed order, and anything else
+  follows, sorted. A hand-added key in a hand-edited document round-trips rather than being
+  silently dropped, which "formatting is never semantic" requires.
+- **`projectContentHash` is change detection, not integrity** — two 32-bit FNV-1a passes
+  under different offset bases, over the document serialized with `modifiedAt` blanked. F3's
+  document adapter and F5's stamp guard both want the same question answered, and this is
+  where it is answered.
+- **The stored hash lives in the Pinia store, beside the save chain**, because it is a fact
+  about the *open* project rather than about a repository: `open` seeds it, `close` and
+  `remove` clear it, `rename` re-seeds it after the flush the rename already did, and
+  `writeCurrent` returns early on a match before stamping anything.
+- **The golden files are documents, not snapshots** —
+  `src/renderer/src/domain/__tests__/golden/*.tms9918` / `*.vic20`, six of them here and
+  four there, written by fixtures with a pinned id and pinned dates. A formatting change
+  shows up in review as a diff of the thing users' repositories will hold. `UPDATE_GOLDEN=1`
+  rewrites them after a deliberate change.
+- **`import.meta.url` is an `http://` URL under the jsdom test environment**, not a file one,
+  so a spec that reads a fixture off disk resolves from `process.cwd()` — which is vitest's
+  root, the repo root. F3's node-environment project will not have this problem; specs that
+  stay in jsdom will.
+- **The share link stays on compact `JSON.stringify`.** D4 is for files that go into a
+  repository; a link is compressed bytes in a URL, where none of this would help.
 
 ### Phase F3 — Documents on disk
 
@@ -817,6 +891,8 @@ shows the old list.
 - [ ] `utils/strings.ts` — *Upload Project* → *Open…*, *Download* → *Save a Copy…*, and the
       editor header's "Back to Projects" → "Close Document". This is the wording fork the
       shell's own plan deferred; it stays out of the views
+- [ ] *Download* writes the bare extension in both shells (D3) — the file content already
+      matches after F2; only the name the browser saves it under is still the v1 compound one
 - [ ] Share links from the desktop resolve against the published web app (D21)
 
 **Exit criteria:** every File menu item works from the menu in both apps; Open Recent survives

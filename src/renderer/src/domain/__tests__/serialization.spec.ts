@@ -3,6 +3,7 @@ import { blankScreen, createProject, defaultSettings } from '../factory'
 import {
   ProjectValidationError,
   deserializeProject,
+  projectContentHash,
   serializeProject,
   validateProject,
 } from '../serialization'
@@ -273,5 +274,126 @@ describe('serialization', () => {
       bright.screens[0]!.colors[0] = 8 // color RAM is 3 bits wide
       expect(rejectionOf(bright).message).toContain('color RAM values (0–7)')
     })
+  })
+})
+
+describe('git-first format (D4)', () => {
+  const lines = (project: Project): string[] => serializeProject(project).split('\n')
+
+  it('ends with a trailing newline and uses LF throughout', () => {
+    const text = serializeProject(sample())
+    expect(text.endsWith('\n')).toBe(true)
+    expect(text).not.toContain('\r')
+  })
+
+  it('writes the top-level keys in the fixed order', () => {
+    const text = serializeProject(createProject({ seed: 'blank', name: 'Order', type: 'mixed' }))
+    const keys = [...text.matchAll(/^ {2}"(\w+)":/gm)].map((match) => match[1])
+    expect(keys).toEqual([
+      'version',
+      'id',
+      'name',
+      'type',
+      'createdAt',
+      'modifiedAt',
+      'settings',
+      'charset',
+      'charModes',
+      'screens',
+    ])
+  })
+
+  it('writes the settings keys in the fixed order', () => {
+    const text = serializeProject(sample())
+    const keys = [...text.matchAll(/^ {4}"(\w+)":/gm)].map((match) => match[1])
+    expect(keys).toEqual(Object.keys(defaultSettings()))
+  })
+
+  it('serializes identically whichever order the keys were built in', () => {
+    const project = sample()
+    // What a file someone else wrote parses back as: same project, other order.
+    const shuffled = Object.fromEntries(
+      Object.entries(project as unknown as Record<string, unknown>).reverse(),
+    ) as unknown as Project
+    expect(serializeProject(shuffled)).toBe(serializeProject(project))
+  })
+
+  it('puts one character per line, whatever the character height', () => {
+    const project = sample()
+    project.charset[5] = [1, 2, 3, 4, 5, 6, 7, 8]
+    expect(lines(project)).toContain('    [1, 2, 3, 4, 5, 6, 7, 8],')
+    expect(lines(project).filter((line) => /^ {4}\[\d/.test(line))).toHaveLength(256)
+
+    const tall = createProject({
+      seed: 'blank',
+      name: 'Tall',
+      type: 'hires',
+      settings: { charHeight: 16, charCount: 64 },
+    })
+    const patterns = lines(tall).filter((line) => /^ {4}\[\d/.test(line))
+    expect(patterns).toHaveLength(64)
+    expect(
+      patterns[0]!
+        .trim()
+        .replace(/[[\],]/g, '')
+        .split(' '),
+    ).toHaveLength(16)
+  })
+
+  it('puts one screen row per line, at settings.columns, for cells and colors', () => {
+    const project = createProject({
+      seed: 'blank',
+      name: 'Rows',
+      type: 'hires',
+      settings: { columns: 20, rows: 12 },
+    })
+    const rows = lines(project).filter((line) => /^ {8}\d/.test(line))
+    // Two grids of 12 rows each.
+    expect(rows).toHaveLength(24)
+    expect(rows[0]!.trim().split(', ')).toHaveLength(20)
+  })
+
+  it('reserializes a document it wrote byte for byte', () => {
+    const text = serializeProject(createProject({ seed: 'blank', name: 'Idem', type: 'mixed' }))
+    expect(serializeProject(deserializeProject(text))).toBe(text)
+  })
+
+  it('keeps a key it does not know about, after the ones it does', () => {
+    const withExtra = { ...sample(), zzz: 'kept' } as unknown as Project
+    const text = serializeProject(withExtra)
+    expect(text).toContain('"zzz": "kept"')
+    expect(text.indexOf('"zzz"')).toBeGreaterThan(text.indexOf('"screens"'))
+  })
+
+  it('changes exactly one line when one character changes', () => {
+    const project = sample()
+    const before = serializeProject(project).split('\n')
+    project.charset[7] = [1, 2, 3, 4, 5, 6, 7, 8]
+    const after = serializeProject(project).split('\n')
+    expect(after).toHaveLength(before.length)
+    expect(after.filter((line, i) => line !== before[i])).toHaveLength(1)
+  })
+})
+
+describe('content hash (D5)', () => {
+  it('ignores modifiedAt', () => {
+    const project = sample()
+    const before = projectContentHash(project)
+    project.modifiedAt = new Date(Date.now() + 60_000).toISOString()
+    expect(projectContentHash(project)).toBe(before)
+  })
+
+  it('moves when a single pixel does', () => {
+    const project = sample()
+    const before = projectContentHash(project)
+    project.charset[0]![0] = 1
+    expect(projectContentHash(project)).not.toBe(before)
+  })
+
+  it('matches across a round-trip through the file format', () => {
+    const project = createProject({ seed: 'blank', name: 'Hash', type: 'mixed' })
+    expect(projectContentHash(deserializeProject(serializeProject(project)))).toBe(
+      projectContentHash(project),
+    )
   })
 })

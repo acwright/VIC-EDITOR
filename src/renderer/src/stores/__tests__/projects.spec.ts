@@ -330,4 +330,54 @@ describe('projects store', () => {
       await expect(store.flushAutosave()).resolves.toBeUndefined()
     })
   })
+
+  describe('unchanged saves (D5)', () => {
+    it('writes nothing, and stamps nothing, when the project has not changed', async () => {
+      const store = useProjectsStore()
+      const project = (await store.create({ name: 'Alpha', type: 'hires' }))!
+      await store.open(project.id)
+      const stamp = store.current!.modifiedAt
+
+      const setItem = vi.spyOn(localStorage, 'setItem')
+      expect(await store.saveCurrent()).toBe(true)
+
+      expect(setItem).not.toHaveBeenCalled()
+      expect(store.current!.modifiedAt).toBe(stamp)
+      expect(store.saveState).toBe('saved')
+      setItem.mockRestore()
+    })
+
+    it('writes, and stamps, as soon as a pixel moves', async () => {
+      vi.useFakeTimers()
+      const store = useProjectsStore()
+      const project = (await store.create({ name: 'Alpha', type: 'hires' }))!
+      await store.open(project.id)
+      const stamp = store.current!.modifiedAt
+
+      // Far enough that the ISO stamp is bound to differ.
+      vi.setSystemTime(new Date(Date.parse(stamp) + 60_000))
+      store.current!.charset[0]![0] = 1
+      expect(await store.saveCurrent()).toBe(true)
+
+      expect(store.current!.modifiedAt).not.toBe(stamp)
+      const reopened = (await store.open(project.id))!
+      expect(reopened.charset[0]![0]).toBe(1)
+    })
+
+    it('a second save of the same edit writes once', async () => {
+      const store = useProjectsStore()
+      const project = (await store.create({ name: 'Alpha', type: 'hires' }))!
+      await store.open(project.id)
+
+      store.current!.name = 'Edited'
+      await store.saveCurrent()
+      const stamp = store.current!.modifiedAt
+
+      const setItem = vi.spyOn(localStorage, 'setItem')
+      await store.saveCurrent()
+      expect(setItem).not.toHaveBeenCalled()
+      expect(store.current!.modifiedAt).toBe(stamp)
+      setItem.mockRestore()
+    })
+  })
 })

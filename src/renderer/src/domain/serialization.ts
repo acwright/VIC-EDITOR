@@ -7,6 +7,25 @@
  * Validation is exhaustive on purpose: the same function guards uploads, share
  * links and everything read back out of localStorage, and the editor assumes
  * from then on that geometry, color ranges and array lengths agree.
+ *
+ * `serializeProject` is the *only* serialization (Document Storage plan, D4):
+ * downloads and, from F3, disk writes both go through it. It is git-first, not
+ * merely pretty — the rules below buy a diff that names the characters and
+ * screen rows that changed instead of one enormous blob:
+ *
+ * - keys in a fixed order, so a project built by `createProject` and one parsed
+ *   back from a file serialize identically;
+ * - one character per line — a pattern's `charHeight` bytes stay together, so a
+ *   charset is one line per character;
+ * - one screen row per line — `cells` and `colors` wrapped at
+ *   `settings.columns`, so a row of the file is a row of the screen;
+ * - 2-space indent, LF, trailing newline (both repos are `* text=auto eol=lf`).
+ *
+ * Formatting is never semantic: `deserialize(serialize(p))` deep-equals `p`,
+ * and reserializing a file this wrote reproduces it byte for byte.
+ *
+ * The share link is deliberately *not* on this path — it compresses compact
+ * JSON, where none of this would help (`share.ts`).
  */
 
 import type { CharCount, CharHeight, Expansion, Project, ProjectSettings } from './types'
@@ -32,9 +51,166 @@ function fail(message: string): never {
   throw new ProjectValidationError(message)
 }
 
-/** Pretty-printed JSON, suitable for download as `<name>.vic20.json`. */
+/**
+ * How each node of the document is laid out. `'block'` puts one entry on its
+ * own line; a number wraps a flat array at that many entries per line; the
+ * default, `'inline'`, keeps the whole node on the line it starts on.
+ */
+type Layout = 'block' | 'inline' | number
+
+/**
+ * Object key order, by node path (`''` is the document itself, `[]` stands for
+ * any array index). Keys not listed follow the listed ones, sorted — a
+ * hand-added key survives a round-trip rather than being dropped.
+ */
+const KEY_ORDER: Record<string, string[]> = {
+  '': [
+    'version',
+    'id',
+    'name',
+    'type',
+    'createdAt',
+    'modifiedAt',
+    'settings',
+    'charset',
+    'charModes',
+    'screens',
+  ],
+  settings: [
+    'columns',
+    'rows',
+    'charHeight',
+    'charCount',
+    'video',
+    'screenColor',
+    'borderColor',
+    'auxColor',
+    'reverse',
+    'expansion',
+    'charBase',
+    'screenBase',
+  ],
+  'screens[]': ['name', 'cells', 'colors'],
+}
+
+/**
+ * Layout by node path. What is *absent* matters as much as what is here:
+ * `charset[]` (a character's pattern bytes) falls through to `'inline'`, which
+ * is what puts one character on one line.
+ */
+const LAYOUT: Record<string, Layout> = {
+  '': 'block',
+  settings: 'block',
+  charset: 'block',
+  charModes: 16,
+  screens: 'block',
+  'screens[]': 'block',
+}
+
+const INDENT = '  '
+
+function childPath(path: string, key: string): string {
+  return path === '' ? key : `${path}.${key}`
+}
+
+/** Listed keys first in their listed order, then anything else, sorted. */
+function orderedEntries(object: Record<string, unknown>, path: string): [string, unknown][] {
+  const keys = Object.keys(object).filter((key) => object[key] !== undefined)
+  const order = KEY_ORDER[path]
+  const ordered = order
+    ? [
+        ...order.filter((key) => keys.includes(key)),
+        ...keys.filter((key) => !order.includes(key)).sort(),
+      ]
+    : keys.sort()
+  return ordered.map((key) => [key, object[key]])
+}
+
+/**
+ * Renders one node. The first line carries no indent — the caller has already
+ * placed it — and every line after it is indented from `depth`.
+ */
+function render(
+  value: unknown,
+  path: string,
+  depth: number,
+  layouts: Record<string, Layout>,
+): string {
+  const layout = layouts[path] ?? 'inline'
+  const pad = INDENT.repeat(depth + 1)
+  const close = INDENT.repeat(depth)
+
+  if (Array.isArray(value)) {
+    if (value.length === 0) return '[]'
+    const item = (entry: unknown, itemDepth: number): string =>
+      render(entry, `${path}[]`, itemDepth, layouts)
+    if (layout === 'inline') return `[${value.map((entry) => item(entry, depth)).join(', ')}]`
+    if (typeof layout === 'number') {
+      const rows: string[] = []
+      for (let i = 0; i < value.length; i += layout) {
+        rows.push(
+          pad +
+            value
+              .slice(i, i + layout)
+              .map((entry) => item(entry, depth + 1))
+              .join(', '),
+        )
+      }
+      return `[\n${rows.join(',\n')}\n${close}]`
+    }
+    return `[\n${value.map((entry) => pad + item(entry, depth + 1)).join(',\n')}\n${close}]`
+  }
+
+  if (typeof value === 'object' && value !== null) {
+    const entries = orderedEntries(value as Record<string, unknown>, path)
+    if (entries.length === 0) return '{}'
+    const property = (key: string, entry: unknown, entryDepth: number): string =>
+      `${JSON.stringify(key)}: ${render(entry, childPath(path, key), entryDepth, layouts)}`
+    if (layout !== 'block') {
+      return `{ ${entries.map(([key, entry]) => property(key, entry, depth)).join(', ')} }`
+    }
+    const lines = entries.map(([key, entry]) => pad + property(key, entry, depth + 1))
+    return `{\n${lines.join(',\n')}\n${close}}`
+  }
+
+  return JSON.stringify(value)
+}
+
+/**
+ * Git-first project text (D4), and the only serialization: what *Download*
+ * writes today and what the desktop app writes to disk from F3. Byte-identical
+ * for equal projects, whatever order their keys were built in.
+ */
 export function serializeProject(project: Project): string {
-  return JSON.stringify(project, null, 2)
+  // One screen row per line. Geometry is project-wide here, so both grids wrap
+  // at the same width; the guard is for a project that has not been validated.
+  const columns = Math.max(1, Math.trunc(project.settings?.columns) || 1)
+  const layouts: Record<string, Layout> = {
+    ...LAYOUT,
+    'screens[].cells': columns,
+    'screens[].colors': columns,
+  }
+  return `${render(project, '', 0, layouts)}\n`
+}
+
+/**
+ * Content identity for D5's "a write that would not change the file does not
+ * happen". `modifiedAt` is excluded — it is a consequence of a change, never
+ * one — so a project that autosave revisits without an edit hashes the same and
+ * is not written. This is change detection, not integrity: two 32-bit FNV-1a
+ * passes under different offset bases, printed as 16 hex digits.
+ */
+export function projectContentHash(project: Project): string {
+  const text = serializeProject({ ...project, modifiedAt: '' })
+  return fnv1a(text, 0x811c9dc5) + fnv1a(text, 0x9dc5811c)
+}
+
+function fnv1a(text: string, basis: number): string {
+  let hash = basis
+  for (let i = 0; i < text.length; i++) {
+    hash = Math.imul(hash ^ text.charCodeAt(i), 0x01000193)
+  }
+  return (hash >>> 0).toString(16).padStart(8, '0')
 }
 
 /** Parse and validate a project JSON string (e.g. an uploaded file). */
