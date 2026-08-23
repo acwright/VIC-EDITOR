@@ -28,12 +28,14 @@ belongs in one of those files, not in an `if (electron)` inside a component.
 
 Adding to the preload surface means adding to `src/shared/api.ts` and `src/shared/ipc.ts`
 too. Keep it narrow and explicitly typed; there is deliberately no `ipcRenderer`
-passthrough (§4 D5).
+passthrough.
 
 ## Things that look odd and are load-bearing
 
-Each of these was measured before it was written. `ELECTRON-PLAN.md` §3 has the spikes and
-the numbers; this is the short list of what not to "clean up".
+Each of these was measured in the running app before it was written. The spikes and the
+numbers behind them are in the git history — they lived in `ELECTRON-PLAN.md`, which was
+removed once the desktop shell shipped — and this is the short list of what not to
+"clean up".
 
 - **The renderer is served over `app://vic20/` in production, not `file://`.** Under
   `file://` the router's `createWebHistory` is broken twice over: `location.pathname` on
@@ -102,17 +104,23 @@ installer is the standing example.
 
 ## The TMS9918 Editor is the same app
 
-`../TMS9918-EDITOR` is structurally identical — same stack, same layout, same tooling,
-same router and persistence design, and an Electron shell that differs only in the values
-tabulated in `ELECTRON-PLAN.md` §5 (product name, appId, `app://` host, window
-measurements). A fix to the shell here is almost always a fix there too. It carries a
-sprite mode this repo does not, so its shortcut map and menu have entries with no
-counterpart here — the parts that differ are the editor, not the shell.
+`../TMS9918-EDITOR` is structurally identical — same stack, same layout, same tooling, same
+router and persistence design, and an Electron shell that differs only in a handful of
+values — product name, appId, `app://` host, window measurements — which live in
+`electron-builder.yml`, `src/main/index.ts` and `src/main/windowState.ts`. A fix to the
+shell here is almost always a fix there too. It carries a sprite mode this repo does not, so
+its shortcut map and menu have entries with no counterpart here — the parts that differ are
+the editor, not the shell.
 
-Its `ELECTRON-PLAN.md` is meant to be **identical** in both repos: when a decision changes,
-change both copies. The rest of the desktop shell is duplicated rather than shared, on
-purpose — extracting a package is worth it only if a third editor appears (§9).
+Its `PLAN.md` is meant to be **identical** in both repos: when a decision changes, change
+both copies. The rest of the desktop shell is duplicated rather than shared, on purpose —
+extracting a package is worth it only if a third editor appears.
 
-`ELECTRON-PLAN.md` is the source of truth for the desktop work: the spikes, the confirmed
-decisions with their numbering (D1–D11), and what was deliberately deferred. `PLAN.md`
-covers the editor itself, round by round.
+`PLAN.md` is the source of truth for the work in flight — its spikes, its confirmed
+decisions (D1–D22) and what it deliberately defers. It is currently the move off browser
+storage and onto **project files the desktop app opens by double-click**, which is a change
+big enough to touch two of the rules above: the desktop app will route `/` to its own start
+view rather than the project manager (the only view-layer fork, decided once in the router —
+no component branches on the shell), and the renderer will still never name a file path, the
+main process owning whichever document is open. Read it before changing anything under
+`src/renderer/src/persistence/`, `src/main/` or the router.
