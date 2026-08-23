@@ -1320,12 +1320,18 @@ F1–F7 had never run on CI — `main` was still at the pre-F1 commit — so the
 round was the first time `documentFile.spec.ts` ran anywhere but a Mac, and one test failed in
 both repos. *"Moves the stamp when the same-length text is written again"* asserted that two
 back-to-back same-length writes get distinct mtimes. That is S3's measurement on APFS, and it
-is **a property of the filesystem rather than of this code**: the GitHub runner's timestamp
-moves once a clock tick, so both writes came back with the same `mtimeMs` to four decimal
-places. The test now measures the filesystem's resolution first — several rounds, all of which
-must separate, so a single pair straddling a tick cannot claim more than the clock offers —
-and asserts the strict claim only where it holds, plus what `writeDocumentAt` itself promises
-everywhere: the stamp it returns is the file's own, and it never goes backwards.
+is **a property of the filesystem rather than of this code**: on the GitHub runner both writes
+came back with the same `mtimeMs` to four decimal places.
+
+A first attempt to keep the claim — probe the filesystem's resolution, assert strictly only
+where it resolves — **failed again, and taught the sharper fact**: the probe's two *in-place*
+writes did separate on that runner, while `writeDocumentAt`'s two write-temp-then-rename
+cycles did not. Creating a fresh file twice inside one tick is what collides there, not
+rewriting one. So distinctness is not something a test in this repo can honestly assert
+without testing the runner, and it is now recorded here as the measurement it always was.
+What the test asserts instead is what `writeDocumentAt` itself promises, on any filesystem:
+the stamp handed back is the file's own rather than a cached guess, the size is the new
+text's, mtime never goes backwards, and the bytes really changed.
 
 **The product consequence is real but narrow, and is the one §6 already named.** Where mtime
 does not resolve two writes, a `{ mtimeMs, size }` stamp cannot tell apart a same-length file
@@ -1381,8 +1387,9 @@ Considered and out of scope, so it is clear they were not overlooked:
 - **File → Open Folder**, opening the first document in a directory. This is where the
   rejected workspace shapes start to creep back in; worth resisting unless asked for.
 - **A content hash in the document stamp.** `{ mtimeMs, size }` is enough on APFS, where it
-  was measured (S3), and it is not enough on a filesystem whose timestamp moves once a clock
-  tick — the CI runner's is one, which is how this surfaced (F8). Hashing the bytes on read
+  was measured (S3), and it is not enough on a filesystem that gives two files created inside
+  one clock tick the same timestamp — the CI runner's is one, which is how this surfaced
+  (F8), and an atomic write creates a fresh file every time. Hashing the bytes on read
   and write would make D6's guard independent of the clock. Deferred rather than done: the
   gap it closes is a checkout landing inside one tick of an autosave, and the cost is a hash
   over the whole document on every stamp, which is the thing §5 measured the write budget

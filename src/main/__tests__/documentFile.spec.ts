@@ -5,7 +5,6 @@ import {
   readdirSync,
   realpathSync,
   rmSync,
-  statSync,
   writeFileSync,
 } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -37,30 +36,6 @@ import {
 
 let directory: string
 
-/**
- * Whether this filesystem gives two immediate same-length writes distinct
- * mtimes. True on APFS (S3); false on the CI runner's, whose timestamp moves
- * only once a clock tick.
- *
- * Several rounds rather than one, and every round has to separate: a single
- * pair that happens to straddle a tick boundary would say "yes" on a
- * filesystem that mostly says no, and the caller would then assert something
- * that is only sometimes true.
- */
-function resolvesBackToBackWrites(where: string): boolean {
-  const probe = join(where, '.mtime-probe')
-  try {
-    for (let round = 0; round < 5; round += 1) {
-      writeFileSync(probe, 'aaaa\n', 'utf-8')
-      const before = statSync(probe).mtimeMs
-      writeFileSync(probe, 'bbbb\n', 'utf-8')
-      if (statSync(probe).mtimeMs === before) return false
-    }
-    return true
-  } finally {
-    rmSync(probe, { force: true })
-  }
-}
 
 beforeEach(() => {
   directory = mkdtempSync(join(tmpdir(), 'vic20-document-'))
@@ -136,37 +111,34 @@ describe('writeDocumentAt', () => {
     expect(readFileSync(path, 'utf-8')).toBe('second\n')
   })
 
-  it('moves the stamp when the same-length text is written again', () => {
-    // D5 elides a write that would change nothing, and D6's guard compares
-    // stamps — both of which want mtime to be finer-grained than the writes.
+  it("returns the file's own stamp for a same-length rewrite", () => {
+    // What this can assert, and what it deliberately does not.
     //
-    // **That is a property of the filesystem, not of this code**, and it is not
-    // universal. S3 measured six back-to-back same-length writes producing six
-    // distinct mtimes on APFS, which is what the `{ mtimeMs, size }` stamp
-    // rests on; the CI runner's filesystem returns the *same* mtime for two
-    // writes inside one clock tick, and asserting otherwise there is asserting
-    // something this repo does not control. So the resolution is measured
-    // first and the strict claim made only where it holds. What is asserted
-    // everywhere is what `writeDocumentAt` itself promises: the stamp it
-    // returns is the file's own, and it never goes backwards.
+    // D5 elides a write that would change nothing and D6's guard compares
+    // stamps, so both would like mtime to separate two same-length writes.
+    // **Whether it does is the filesystem's business, not this code's**, and
+    // it is not universal: S3 measured six back-to-back writes producing six
+    // distinct mtimes on APFS, and the CI runner gives two *write-temp-then-
+    // rename* cycles the same mtime — even though two in-place writes there
+    // do separate. So distinctness is a measurement, recorded in PLAN.md §6,
+    // and not an assertion; a test that made it would be testing the runner.
     //
-    // The narrow consequence where mtime does not resolve two writes: a stamp
-    // cannot distinguish a same-length file swapped in within the same tick as
-    // our own last write. PLAN.md §6 names the fix — a content hash — and §12
-    // is where it would go if it is ever wanted.
+    // The narrow consequence where it does not hold: a `{ mtimeMs, size }`
+    // stamp cannot tell apart a same-length file swapped in within the same
+    // tick as our own last write. PLAN.md §12 carries the fix — a content
+    // hash — as deferred work.
+    //
+    // What *is* this code's business, and is asserted: the stamp handed back
+    // is the file's own rather than a cached guess, the size is the new
+    // text's, mtime never goes backwards, and the bytes really changed.
     const path = join(directory, 'Alpha.vic20')
     const first = writeDocumentAt(path, 'aaaa\n')
     const second = writeDocumentAt(path, 'bbbb\n')
 
-    expect(second.size).toBe(first.size)
     expect(second).toEqual(stampOf(path))
+    expect(second.size).toBe(first.size)
     expect(second.mtimeMs).toBeGreaterThanOrEqual(first.mtimeMs)
-
-    // The claim, stated so it holds on both kinds of filesystem and needs no
-    // branch: the two stamps never collide on one that could have told them
-    // apart. Where the clock cannot, equal is the only answer available.
-    const collided = second.mtimeMs === first.mtimeMs
-    expect(collided && resolvesBackToBackWrites(directory)).toBe(false)
+    expect(readFileSync(path, 'utf-8')).toBe('bbbb\n')
   })
 
   it('leaves the existing document intact when the write fails', () => {
