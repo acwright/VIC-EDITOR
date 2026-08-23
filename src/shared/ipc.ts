@@ -31,8 +31,35 @@ export const IPC = {
    * Main derives the filename and picks the folder (D8, D10).
    */
   DOCUMENT_CREATE: 'document:create',
-  /** Renderer → main: run an open dialog and adopt what the user chose. */
+  /**
+   * Renderer → main: run an open dialog. What the user chose goes through the
+   * same arrival path as a double-click rather than coming back as a reply —
+   * every way a document can arrive is one code path (D15).
+   */
   DOCUMENT_OPEN: 'document:open',
+  /**
+   * Main → renderer: a document is waiting to be opened — a double-click, a
+   * drop, Open Recent, the Open dialog, or the one that was open at the last
+   * quit (D11, D15). The renderer answers by flushing what it has and calling
+   * `DOCUMENT_TAKE_PENDING`; nothing is adopted until it does, so an edit still
+   * in the autosave window lands in the *old* file (D17).
+   */
+  DOCUMENT_PENDING: 'document:pending',
+  /**
+   * Renderer → main: adopt whatever is waiting and hand it over. `none` when
+   * nothing is — which is also how a launch with no document says so.
+   */
+  DOCUMENT_TAKE_PENDING: 'document:take-pending',
+  /**
+   * Renderer → main: the user dropped a file on the window. The path is
+   * derived in the *preload* by `webUtils.getPathForFile` (S5) — the isolated
+   * renderer cannot reach it — and goes straight into the arrival path.
+   */
+  DOCUMENT_DROPPED: 'document:dropped',
+  /** Renderer → main, replies with Recent Documents for the start screen (D16). */
+  DOCUMENT_RECENT: 'document:recent',
+  /** Renderer → main: open the recent document with this id. Arrives as pending. */
+  DOCUMENT_OPEN_RECENT: 'document:open-recent',
   /**
    * Renderer → main: re-read whatever document is open. This is how the
    * renderer recovers after a reload — main is the process that knows (D9).

@@ -13,6 +13,7 @@
  */
 
 import type { Project } from '@/domain/types'
+import type { RecentDocument } from '@shared/document'
 import type { ProjectSummary } from './repository'
 
 export interface ProjectStore {
@@ -56,8 +57,24 @@ export interface DocumentStore extends ProjectStore {
   readonly name: string | null
   /** Write `project` into the current location as a new document (D10). */
   createDocument(project: Project): Promise<Project | null>
-  /** Run an Open dialog and adopt what was chosen; `null` if cancelled. */
-  openDocument(): Promise<Project | null>
+  /**
+   * Run an Open dialog. It answers with nothing: what the user chose arrives
+   * the same way a double-click does, through `takePending` (D15).
+   */
+  requestOpen(): Promise<void>
+  /** Ask for a recent document by its opaque id. Arrives through `takePending`. */
+  openRecent(id: string): Promise<void>
+  /** Recent Documents, for the start screen's list (D16). */
+  recent(): Promise<RecentDocument[]>
+  /**
+   * Take the document that is waiting, if one is. `null` when none is — which
+   * is what a launch with nothing to reopen answers.
+   *
+   * **The caller flushes first.** Main swaps the open document inside this
+   * call, so an edit still in the autosave window has to have landed in the
+   * old file already (D17). `stores/projects.ts` is the only caller and does.
+   */
+  takePending(): Promise<Project | null>
   /** Forget the open document. Writes nothing. */
   closeDocument(): Promise<void>
   /** Where a new document would go, for the New dialog's location row (D10). */

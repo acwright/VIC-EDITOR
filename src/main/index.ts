@@ -6,8 +6,16 @@ import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import { IPC } from '../shared/ipc'
 import { EMPTY_MENU_CONTEXT, type MenuContext } from '../shared/menu'
 import { registerDialogHandlers } from './dialogs'
-import { registerDocumentHandlers } from './document'
+import { registerDocumentHandlers, restoreLastDocument } from './document'
 import { buildMenu, setMenuContext } from './menu'
+import {
+  documentFromArgv,
+  installOpenFileHandler,
+  rendererDidLoad,
+  rendererDidUnload,
+  requestOpen,
+} from './openRequests'
+import { onRecentDocumentsChanged } from './recent'
 import { MIN_WINDOW_SIZE, loadWindowState, trackWindowState } from './windowState'
 
 const APP_ID = 'com.acwright.vic20editor'
@@ -64,6 +72,37 @@ let quitting = false
  * happen before anything asks for that path.
  */
 app.setName(PRODUCT_NAME)
+
+/**
+ * One instance, because there is one window and one document (D17).
+ *
+ * Without the lock, double-clicking a document on Windows or Linux starts a
+ * *second copy of the app* — two windows, two menu bars, and two processes that
+ * could autosave over each other. The second launch hands its command line to
+ * the first through `second-instance` below and exits.
+ *
+ * macOS never starts a second instance for a document; it delivers `open-file`
+ * to the running one (S2). The lock is harmless there and is taken all the same,
+ * so the three platforms reach `requestOpen` the same way.
+ */
+const isPrimaryInstance = app.requestSingleInstanceLock()
+if (!isPrimaryInstance) app.quit()
+
+app.on('second-instance', (_event, argv) => {
+  const path = documentFromArgv(argv)
+  if (path) requestOpen(path)
+  else {
+    // Launching the app again with no document is a request to see the window
+    // that is already running.
+    mainWindow?.show()
+    mainWindow?.focus()
+  }
+})
+
+// Must be installed *now*, at module scope: a double-click that launches the
+// app delivers `open-file` before `whenReady` resolves, so a handler registered
+// inside it would miss the document the launch was for (S2).
+installOpenFileHandler()
 
 protocol.registerSchemesAsPrivileged([
   {
@@ -133,6 +172,14 @@ function createWindow(): void {
 
   mainWindow.on('ready-to-show', () => mainWindow?.show())
 
+  // The renderer asks for a pending document as it starts, which covers
+  // everything queued before this point; this covers anything that arrives
+  // after — a second double-click, Open Recent, a reload with one still
+  // waiting.
+  mainWindow.webContents.on('did-finish-load', () => {
+    if (mainWindow) rendererDidLoad(mainWindow)
+  })
+
   // Give the renderer a chance to flush its debounced autosave before the
   // window goes away.
   mainWindow.on('close', (event) => {
@@ -146,6 +193,7 @@ function createWindow(): void {
 
   mainWindow.on('closed', () => {
     mainWindow = null
+    rendererDidUnload()
     // The app is on its way out (see `window-all-closed`), but the menu bar
     // outlives the window by a moment on macOS. Nothing in it has a view to
     // act on any more, so it all goes grey rather than staying lit over a
@@ -200,6 +248,11 @@ app.on('before-quit', () => {
 })
 
 app.whenReady().then(() => {
+  // A second launch has handed its command line to the instance that already
+  // holds the lock and is on its way out. It must not build a menu or open a
+  // window on the way.
+  if (!isPrimaryInstance) return
+
   electronApp.setAppUserModelId(APP_ID)
 
   // macOS reads this for the About panel under the app menu; Windows and Linux
@@ -226,6 +279,19 @@ app.whenReady().then(() => {
   ipcMain.on(IPC.MENU_SET_CONTEXT, (_event, context: MenuContext) => setMenuContext(context))
   registerDialogHandlers()
   registerDocumentHandlers()
+
+  // Opening a document changes what Open Recent holds, and the menu is built
+  // from that list rather than from a copy of it.
+  onRecentDocumentsChanged(buildMenu)
+
+  // Windows and Linux deliver a double-click as an argument; macOS has already
+  // delivered it to `open-file` above, where argv is empty (S2). Either way the
+  // document is queued rather than opened, and the renderer takes it as it
+  // starts — so the first thing painted is the editor, not the launcher.
+  const launched = documentFromArgv(process.argv)
+  if (launched) requestOpen(launched)
+  // Nothing was asked for, so put back what was open at the last quit (D11).
+  else restoreLastDocument()
 
   createWindow()
 

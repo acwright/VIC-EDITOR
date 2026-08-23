@@ -1,6 +1,9 @@
 import { app, shell, BrowserWindow, Menu, type MenuItemConstructorOptions } from 'electron'
 import { is } from '@electron-toolkit/utils'
 import { IPC } from '../shared/ipc'
+import { requestOpen } from './openRequests'
+import { clearRecentDocuments, recentDocumentPaths } from './recent'
+import { documentName } from './documentFile'
 import {
   EMPTY_MENU_CONTEXT,
   MENU_ACTIONS,
@@ -51,8 +54,19 @@ function sameContext(a: MenuContext, b: MenuContext): boolean {
   return JSON.stringify(a) === JSON.stringify(b)
 }
 
-/** The items of one section, with the separators their entries ask for. */
-function actionItems(section: MenuSection): MenuItemConstructorOptions[] {
+/**
+ * The items of one section, with the separators their entries ask for.
+ *
+ * `extras` puts main's *own* items into the run — items that are not actions
+ * the renderer dispatches and so have no place in `MENU_ACTIONS`. Open Recent
+ * is the first of them: each entry is a file main knows about, opened by a path
+ * the renderer never sees (D8, D16). Keyed by the action they follow, so the
+ * order is stated where the reason for it is rather than as an index.
+ */
+function actionItems(
+  section: MenuSection,
+  extras: Record<string, MenuItemConstructorOptions[]> = {},
+): MenuItemConstructorOptions[] {
   const items: MenuItemConstructorOptions[] = []
   for (const entry of MENU_ACTIONS) {
     if (entry.section !== section) continue
@@ -63,8 +77,37 @@ function actionItems(section: MenuSection): MenuItemConstructorOptions[] {
       enabled: context.enabled.includes(entry.action),
       click: () => send(entry.action),
     })
+    items.push(...(extras[entry.action] ?? []))
   }
   return items
+}
+
+/**
+ * Open Recent (D16).
+ *
+ * Always present, disabled when the list is empty rather than absent — a menu
+ * whose items come and go is one people stop trusting. Clicking an entry goes
+ * through the same arrival path as a double-click (D15), so the renderer still
+ * flushes what it is holding before the document is swapped.
+ *
+ * The paths never leave this process: the item closes over one, and what the
+ * renderer is given for its own copy of this list is an opaque id.
+ */
+function openRecentItem(): MenuItemConstructorOptions {
+  const paths = recentDocumentPaths()
+  if (paths.length === 0) {
+    return { label: 'Open Recent', submenu: [{ label: 'No Recent Documents', enabled: false }] }
+  }
+  return {
+    label: 'Open Recent',
+    submenu: [
+      ...paths.map((path) => ({ label: documentName(path), click: () => requestOpen(path) })),
+      { type: 'separator' as const },
+      // The HIG's own wording for this item, and the reason it sits under a
+      // separator: it clears the list, it does not close anything.
+      { label: 'Clear Menu', click: () => clearRecentDocuments() },
+    ],
+  }
 }
 
 function template(): MenuItemConstructorOptions[] {
@@ -78,7 +121,10 @@ function template(): MenuItemConstructorOptions[] {
     {
       label: '&File',
       submenu: [
-        ...items('file'),
+        // Open Recent belongs with the commands that bring a document *in*,
+        // which on this menu is New Project… — Open… and the rest of the File
+        // menu are Phase F7's.
+        ...items('file', { newProject: [{ type: 'separator' }, openRecentItem()] }),
         { type: 'separator' },
         // macOS quits from the app menu; everywhere else File is where Quit lives.
         isMac ? { role: 'close' } : { role: 'quit' },

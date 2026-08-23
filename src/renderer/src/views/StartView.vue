@@ -2,24 +2,27 @@
 /**
  * The desktop's start screen (PLAN.md D12).
  *
- * A launcher, not a project manager. It offers *New…*, *Open…* and the
- * samples, and it never claims to list "your projects" — the app no longer
- * knows what those are, because they are files now and the OS is the list
- * (§4). Recent Documents joins it in Phase F4, which is what makes the launcher
- * a place you come back to rather than a dialog you get past.
+ * A launcher, not a project manager. It offers *New…*, *Open…*, the samples and
+ * **Recent Documents**, and it never claims to list "your projects" — the app no
+ * longer knows what those are, because they are files now and the OS is the list
+ * (§4). Recents are what make this a place you come back to rather than a dialog
+ * you get past, which is why D16 asks for them in two places: here and the File
+ * menu. What each entry names is a file *main* knows about — the view holds an
+ * opaque id and a folder to show, never a path (D8).
  *
  * The browser build never reaches this view: the router picks one home route
  * per shell (D13), and `ProjectManagerView.vue` is the other one, untouched.
  */
 import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
-import { FileText, FolderOpen, Github, Keyboard, Plus, X } from 'lucide-vue-next'
+import { Clock, FileText, FolderOpen, Github, Keyboard, Plus, X } from 'lucide-vue-next'
 import AppButton from '@/components/base/AppButton.vue'
 import HelpDialog from '@/components/HelpDialog.vue'
 import NewProjectDialog from '@/components/projects/NewProjectDialog.vue'
 import type { CreateProjectOptions } from '@/domain/factory'
 import { SAMPLES, type Sample } from '@/samples'
 import { useProjectsStore } from '@/stores/projects'
+import type { RecentDocument } from '@shared/document'
 import { managerMenuContext, onMenuAction, reportMenuContext } from '@/utils/menu'
 import { matchManagerShortcut, shortcutLabel, type ManagerAction } from '@/utils/shortcuts'
 
@@ -40,6 +43,15 @@ const sampleTarget = ref<Sample | null>(null)
 
 /** Where a new document would go, as the dialog shows it (D10). */
 const location = ref('')
+
+/** Recent Documents (D16). Empty in the browser, where this view never runs. */
+const recent = ref<RecentDocument[]>([])
+
+// Re-read on every mount rather than once: coming back from a document has
+// just moved that document to the top of the list.
+onMounted(async () => {
+  recent.value = await store.recentDocuments()
+})
 
 /** The same keys the manager has: this is the view they belong to here. */
 const ACTIONS: Record<ManagerAction, () => void> = {
@@ -109,9 +121,18 @@ async function onCreate(options: CreateProjectOptions) {
   // document of that name is already in that folder.
 }
 
-async function openDocument() {
-  const project = await store.openDocument()
-  if (project) router.push(`/edit/${project.id}`)
+/**
+ * Both of these ask for a document and expect nothing back: what they asked for
+ * arrives through main's own announcement, which `App.vue` turns into the
+ * navigation (D15). One arrival path means the Open dialog and a double-click
+ * cannot end up behaving differently.
+ */
+function openDocument() {
+  void store.openDocument()
+}
+
+function openRecent(entry: RecentDocument) {
+  void store.openRecentDocument(entry.id)
 }
 </script>
 
@@ -157,6 +178,29 @@ async function openDocument() {
         <span class="font-display text-xl tracking-wider">Open…</span>
         <span class="text-xs text-ink-500">Any project file, wherever you keep it</span>
       </button>
+    </section>
+
+    <section v-if="recent.length > 0" class="mt-8">
+      <h2 class="font-display mb-2 text-sm tracking-wider text-ink-400">Recent Documents</h2>
+      <div class="grid gap-2 sm:grid-cols-2" aria-label="Recent documents">
+        <button
+          v-for="entry in recent"
+          :key="entry.id"
+          type="button"
+          class="flex cursor-pointer items-start gap-2 rounded-md border border-ink-800 bg-ink-900 p-3 text-left transition-colors hover:border-ink-600 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink-300"
+          @click="openRecent(entry)"
+        >
+          <Clock class="mt-0.5 size-4 shrink-0 text-ink-500" />
+          <span class="min-w-0">
+            <span class="font-display block truncate text-lg tracking-wider">{{ entry.name }}</span>
+            <!-- Where it lives, so two projects of the same name in two
+                 repositories are told apart without opening either. -->
+            <span class="mt-0.5 block truncate text-xs text-ink-500" :title="entry.directory">{{
+              entry.directory
+            }}</span>
+          </span>
+        </button>
+      </div>
     </section>
 
     <section v-if="SAMPLES.length" class="mt-8">

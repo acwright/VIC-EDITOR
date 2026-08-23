@@ -13,7 +13,12 @@ import type { AppApi } from '@shared/api'
 /** The document surface, answering "nothing is open" to everything. */
 export const stubDocumentApi: AppApi['document'] = {
   create: () => Promise.resolve({ status: 'none' }),
-  open: () => Promise.resolve({ status: 'none' }),
+  open: () => Promise.resolve(),
+  onPending: () => () => {},
+  takePending: () => Promise.resolve({ status: 'none' }),
+  dropped: () => {},
+  recent: () => Promise.resolve([]),
+  openRecent: () => Promise.resolve(),
   current: () => Promise.resolve({ status: 'none' }),
   write: () => Promise.resolve({ status: 'none' }),
   close: () => Promise.resolve(),

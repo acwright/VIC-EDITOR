@@ -71,3 +71,21 @@ export const LEGACY_DOCUMENT_EXTENSION = 'vic20.json'
 
 /** What the open and save dialogs call the type in their filter row. */
 export const DOCUMENT_TYPE_NAME = 'VIC-20 Project'
+
+/**
+ * One entry of Recent Documents (D16).
+ *
+ * **No path crosses in either direction.** `id` is main's own opaque handle on
+ * a file it already knows about, so *Open Recent* names a document without the
+ * renderer ever being able to name a file (D8); `directory` is the folder as it
+ * reads on screen, home collapsed to `~`, and is display text rather than
+ * something the renderer can act on.
+ */
+export interface RecentDocument {
+  /** Opaque and stable for a given file: what `openRecent` takes. */
+  id: string
+  /** The document's name, extension taken off — as the header shows it. */
+  name: string
+  /** Where it lives, for the second line of the entry. */
+  directory: string
+}

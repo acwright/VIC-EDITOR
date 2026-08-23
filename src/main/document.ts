@@ -1,24 +1,24 @@
 import { BrowserWindow, app, dialog, ipcMain, shell } from 'electron'
-import {
-  existsSync,
-  mkdirSync,
-  readFileSync,
-  renameSync,
-  statSync,
-  unlinkSync,
-  writeFileSync,
-} from 'node:fs'
-import { basename, dirname, extname, join } from 'node:path'
+import { existsSync, mkdirSync } from 'node:fs'
+import { basename, dirname, join } from 'node:path'
 import { IPC } from '../shared/ipc'
 import {
   DOCUMENT_EXTENSION,
   DOCUMENT_TYPE_NAME,
-  LEGACY_DOCUMENT_EXTENSION,
   type CreateDocumentRequest,
   type DocumentResult,
   type DocumentStamp,
   type OpenDocument,
 } from '../shared/document'
+import {
+  documentFileName,
+  readDocumentAt,
+  resolveDocumentPath,
+  writeDocumentAt,
+} from './documentFile'
+import { noteRecentDocument, recentDocumentPath, recentDocuments } from './recent'
+import { requestOpen, takePendingDocument } from './openRequests'
+import { loadLastDocument, saveLastDocument } from './windowState'
 
 /**
  * The open document (PLAN.md D6, D8).
@@ -29,10 +29,14 @@ import {
  * the renderer sends carries a path, which is the invariant that keeps the
  * preload surface small enough to enumerate.
  *
- * The file mechanics — the atomic write, the stamp, the name derivation — are
- * exported on their own and covered by `__tests__/document.spec.ts` in the node
- * vitest project, because "rename over the target" is exactly the kind of thing
- * that should not be verified only by driving the app.
+ * The file mechanics — the atomic write, the stamp, the name derivation — live
+ * in `documentFile.ts`, which touches no Electron and is covered on its own in
+ * the node vitest project, because "rename over the target" is exactly the kind
+ * of thing that should not be verified only by driving the app.
+ *
+ * **`adopt` is the only thing that moves the open document**, and every arrival
+ * reaches it through `openRequests.ts` (D15) after the renderer has flushed
+ * whatever it was holding (D17).
  */
 
 /** The document the app has open, or `null`. Main's answer, not the renderer's. */
@@ -41,92 +45,42 @@ let openPath: string | null = null
 let openStamp: DocumentStamp | null = null
 /**
  * Where the next new document goes (D10). Seeded from the folder of the last
- * document opened, so the second project of a session lands beside the first.
- * In memory only for now — Phase F4 remembers the last document across launches
- * and will seed this from that instead.
+ * document opened, so the second project of a session lands beside the first —
+ * and, at launch, from the document the app last had open, so it survives a
+ * restart as well.
  */
 let newDocumentDirectory: string | null = null
 
-// --- File mechanics (no Electron state; covered by the node spec) ---
-
-/**
- * The name a document shows under: its filename with the extension taken off.
- *
- * The compound v1 name is tried first, or `Title Screen.vic20.json` would come
- * back as `Title Screen.vic20` (D3).
- */
-export function documentName(path: string): string {
-  const file = basename(path)
-  for (const extension of [LEGACY_DOCUMENT_EXTENSION, DOCUMENT_EXTENSION]) {
-    if (file.toLowerCase().endsWith(`.${extension}`)) return file.slice(0, -(extension.length + 1))
-  }
-  // Anything else was opened through the All Files row; drop its last extension.
-  return basename(file, extname(file)) || file
-}
-
-/**
- * A project name as a filename. Only what a filesystem refuses is touched —
- * the separators and Windows' reserved set — so "Title Screen" stays
- * `Title Screen.vic20` rather than becoming a slug (D3).
- */
-export function documentFileName(name: string): string {
-  const safe =
-    name
-      .replace(/[<>:"/\\|?*]/g, ' ')
-      .replace(/\s+/g, ' ')
-      // A leading dot hides the file; a trailing dot or space is dropped by Windows.
-      .replace(/^[.\s]+|[.\s]+$/g, '') || 'Project'
-  return `${safe}.${DOCUMENT_EXTENSION}`
-}
-
-/** What a file is right now (D6). */
-export function stampOf(path: string): DocumentStamp {
-  const stats = statSync(path)
-  return { mtimeMs: stats.mtimeMs, size: stats.size }
-}
-
-/** Read a document off disk. Throws with the reason when it cannot be read. */
-export function readDocumentAt(path: string): OpenDocument {
-  const text = readFileSync(path, 'utf-8')
-  return { path, name: documentName(path), text, stamp: stampOf(path) }
-}
-
-/**
- * Write a document atomically (D6): a temporary file beside the target, then a
- * `rename` over it. A crash mid-write leaves the old charset intact rather than
- * a truncated one, which is the whole reason this is not a plain
- * `writeFileSync`.
- *
- * The temporary lives in the *same directory* on purpose: `rename` is atomic
- * only within a filesystem, and the system temp directory is often another one.
- */
-export function writeDocumentAt(path: string, text: string): DocumentStamp {
-  const temporary = `${path}.tmp`
-  try {
-    writeFileSync(temporary, text, 'utf-8')
-    renameSync(temporary, path)
-  } catch (error) {
-    // Never leave a half-written .tmp beside the user's project.
-    try {
-      if (existsSync(temporary)) unlinkSync(temporary)
-    } catch {
-      // The write already failed; failing to tidy up is not the story to tell.
-    }
-    throw error
-  }
-  return stampOf(path)
-}
-
 // --- The open document ---
 
-/** Adopt `path` as the open document and read it. */
+/**
+ * Adopt `path` as the open document and read it.
+ *
+ * The path is resolved first, so that the same file reached two ways — a
+ * dropped `/tmp/x` and an `open-file` `/private/tmp/x` (S1) — is one entry in
+ * recents and one document here.
+ */
 function adopt(path: string): OpenDocument {
-  const document = readDocumentAt(path)
-  openPath = path
+  const resolved = resolveDocumentPath(path) ?? path
+  const document = readDocumentAt(resolved)
+  openPath = resolved
   openStamp = document.stamp
   // The next new document lands beside the one just opened (D10).
-  newDocumentDirectory = dirname(path)
+  newDocumentDirectory = dirname(resolved)
+  // Recents are the desktop's primary navigation (D16), and the last document
+  // is what the next launch reopens (D11).
+  noteRecentDocument(resolved)
+  saveLastDocument(resolved)
   return document
+}
+
+/** Adopt a path, with the failure worded for the renderer's banner. */
+function adoptResult(path: string): DocumentResult<OpenDocument> {
+  try {
+    return { status: 'ok', value: adopt(path) }
+  } catch (error) {
+    return { status: 'error', reason: reasonOf(error) }
+  }
 }
 
 function reasonOf(error: unknown): string {
@@ -150,13 +104,21 @@ function create(request: CreateDocumentRequest): DocumentResult<OpenDocument> {
       return { status: 'error', reason: `"${basename(path)}" already exists in that folder.` }
     }
     writeDocumentAt(path, request.text)
-    return { status: 'ok', value: adopt(path) }
+    return adoptResult(path)
   } catch (error) {
     return { status: 'error', reason: reasonOf(error) }
   }
 }
 
-async function open(parent: BrowserWindow | null): Promise<DocumentResult<OpenDocument>> {
+/**
+ * Run the Open dialog, and put what the user chose into the arrival path
+ * rather than answering with it.
+ *
+ * The dialog is one of six ways a document arrives and it is not the special
+ * one, so it ends where a double-click ends: pending, until the renderer has
+ * flushed and asks for it (D15, D17).
+ */
+async function open(parent: BrowserWindow | null): Promise<void> {
   const options = {
     properties: ['openFile' as const],
     defaultPath: currentLocation(),
@@ -171,13 +133,41 @@ async function open(parent: BrowserWindow | null): Promise<DocumentResult<OpenDo
     ? await dialog.showOpenDialog(parent, options)
     : await dialog.showOpenDialog(options)
   const path = filePaths[0]
-  if (canceled || !path) return { status: 'none' }
+  if (canceled || !path) return
+  requestOpen(path)
+}
 
-  try {
-    return { status: 'ok', value: adopt(path) }
-  } catch (error) {
-    return { status: 'error', reason: reasonOf(error) }
+/** Hand over whatever is waiting, adopting it in the act (D15). */
+function takePending(): DocumentResult<OpenDocument> {
+  const path = takePendingDocument()
+  return path ? adoptResult(path) : { status: 'none' }
+}
+
+/** Open a recent document by the opaque id the renderer was given (D16). */
+function openRecent(id: string): void {
+  const path = recentDocumentPath(id)
+  if (path) requestOpen(path)
+}
+
+/**
+ * Reopen the document that was open when the app last quit (D11).
+ *
+ * It goes through the arrival path like everything else, so the renderer
+ * decides when it lands — which at launch is before the first paint, and is why
+ * relaunching puts you back in the editor rather than on the launcher.
+ */
+export function restoreLastDocument(): void {
+  const remembered = loadLastDocument()
+  if (!remembered) return
+  const path = resolveDocumentPath(remembered)
+  if (!path) {
+    // Deleted, renamed or on a volume that is not mounted: the start screen is
+    // the honest answer, and the app stops asking for it.
+    saveLastDocument(null)
+    return
   }
+  newDocumentDirectory = dirname(path)
+  requestOpen(path)
 }
 
 /**
@@ -213,6 +203,9 @@ function write(text: string): DocumentResult<DocumentStamp> {
 function close(): void {
   openPath = null
   openStamp = null
+  // Closing a document is a decision: the next launch shows the start screen
+  // rather than reopening what was deliberately put away (D11).
+  saveLastDocument(null)
 }
 
 function reveal(): void {
@@ -263,6 +256,10 @@ export function registerDocumentHandlers(): void {
 
   ipcMain.handle(IPC.DOCUMENT_CREATE, (_event, request: CreateDocumentRequest) => create(request))
   ipcMain.handle(IPC.DOCUMENT_OPEN, (event) => open(parentOf(event)))
+  ipcMain.handle(IPC.DOCUMENT_TAKE_PENDING, () => takePending())
+  ipcMain.on(IPC.DOCUMENT_DROPPED, (_event, path: string) => requestOpen(path))
+  ipcMain.handle(IPC.DOCUMENT_RECENT, () => recentDocuments())
+  ipcMain.handle(IPC.DOCUMENT_OPEN_RECENT, (_event, id: string) => openRecent(id))
   ipcMain.handle(IPC.DOCUMENT_CURRENT, () => current())
   ipcMain.handle(IPC.DOCUMENT_WRITE, (_event, text: string) => write(text))
   ipcMain.handle(IPC.DOCUMENT_CLOSE, () => close())

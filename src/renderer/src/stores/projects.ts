@@ -41,6 +41,7 @@ import { createBrowserStore } from '@/persistence/browserStore'
 import { createDocumentStore } from '@/persistence/documentStore'
 import { DocumentError, type DocumentStore, type ProjectLibrary } from '@/persistence/store'
 import { isDesktop } from '@/utils/desktop'
+import type { RecentDocument } from '@shared/document'
 
 export type SaveState = 'saved' | 'saving' | 'unsaved'
 
@@ -150,21 +151,58 @@ export const useProjectsStore = defineStore('projects', () => {
   }
 
   /**
-   * Open a document through the desktop's Open dialog (D15's dialog path).
-   * Null when the user cancelled, or when the file could not be read — the
-   * banner says which.
+   * Ask for a document through the desktop's Open dialog.
+   *
+   * It answers with nothing on purpose: the dialog is one of six ways a
+   * document arrives and not the special one, so what the user chose comes back
+   * through `takePendingDocument` like a double-click does (D15).
    */
-  async function openDocument(): Promise<Project | null> {
+  async function openDocument(): Promise<void> {
+    await documents?.requestOpen()
+  }
+
+  /** Ask for a recent document by the opaque id the start screen was given (D16). */
+  async function openRecentDocument(id: string): Promise<void> {
+    await documents?.openRecent(id)
+  }
+
+  /** Recent Documents, for the start screen. Empty in the browser (D16). */
+  async function recentDocuments(): Promise<RecentDocument[]> {
+    return documents ? await documents.recent() : []
+  }
+
+  /**
+   * Take the document main is holding for us, if it is holding one.
+   *
+   * This is the single arrival point (D15): a double-click, a drop, Open
+   * Recent, the Open dialog and the reopen-at-launch all end here, and so does
+   * a launch with nothing waiting, which answers null.
+   *
+   * The flush is the load-bearing line. Main swaps the open document inside
+   * `takePending`, so whatever the editor was holding has to be written to the
+   * *old* file before that happens — this is what D17's "opening a document
+   * flushes the current one first" actually is.
+   */
+  async function takePendingDocument(): Promise<Project | null> {
     if (!documents) return null
+    const token = ++openToken
+    await flushAutosave()
+    let project: Project | null
     try {
-      const project = await documents.openDocument()
-      documentName.value = documents.name
+      project = await documents.takePending()
       lastError.value = null
-      return project
     } catch (error) {
+      // The file is not a project, or the disk said no. Main's own sentence is
+      // what the banner shows, and whatever was open stays open.
       lastError.value = failureMessage(error, 'That document could not be opened.')
       return null
     }
+    documentName.value = documents.name
+    if (!project || token !== openToken) return project
+    current.value = project
+    storedHash = projectContentHash(project)
+    saveState.value = 'saved'
+    return project
   }
 
   /** Where a new document would go, for the New dialog's location row (D10). */
@@ -388,6 +426,9 @@ export const useProjectsStore = defineStore('projects', () => {
     admit,
     open,
     openDocument,
+    openRecentDocument,
+    recentDocuments,
+    takePendingDocument,
     defaultLocation,
     chooseLocation,
     close,

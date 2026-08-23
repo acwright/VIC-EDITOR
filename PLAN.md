@@ -21,16 +21,26 @@ persistence design — so this is one plan with a table of the handful of values
 
 ## Current Status
 
-- **Status: Phase F3 is complete.** The desktop app opens, edits and saves a *file*.
-  `src/main/document.ts` owns the open document — atomic writes, a stamp on every read and
-  write, and the renderer never naming a path (D6, D8). `documentStore.ts` puts that behind
-  the same `ProjectStore` port the browser adapter implements, so `stores/projects.ts` still
-  has one `load` and one `save`; the shells differ only in the surface *around* them. `/`
-  routes to the new `StartView` on the desktop and to the untouched `ProjectManagerView` in
-  the browser, decided once in the router (D13), and `back` is *Close Document* there (D14).
-  `localStorage` is no longer the desktop's project storage. Not yet done here: double-click
-  and recents (F4), external-change handling (F5) and the migration (F6) — a `v1.6` desktop
+- **Status: Phase F4 is complete.** The operating system opens the editor. A
+  `.tms9918` file carries its own icon, its own named type, and a double-click
+  launches straight into it — cold, or into the app already running. Every way a
+  document can arrive is one path (D15): `open-file`, `argv`, `second-instance`,
+  a drop, the Open dialog, Open Recent and the reopen-at-launch all end in
+  `openRequests.ts`, which announces rather than adopts. The renderer flushes
+  what it holds into the *old* file and only then takes the new one, which is
+  what D17 actually is. Recents are in the File menu and on the start screen
+  (D16), and quitting with a document open returns to it (D11). Not yet done
+  here: external-change handling (F5) and the migration (F6) — a `v1.6` desktop
   user's projects are still only in browser storage until then.
+- Phase F3 before it made the desktop app open, edit and save a *file*.
+  `src/main/document.ts` owns the open document — atomic writes, a stamp on every
+  read and write, and the renderer never naming a path (D6, D8). `documentStore.ts`
+  puts that behind the same `ProjectStore` port the browser adapter implements, so
+  `stores/projects.ts` still has one `load` and one `save`; the shells differ only
+  in the surface *around* them. `/` routes to `StartView` on the desktop and to the
+  untouched `ProjectManagerView` in the browser, decided once in the router (D13),
+  and `back` is *Close Document* there (D14). `localStorage` is no longer the
+  desktop's project storage.
 - Phase F2 before it gave both repos one serialization — `serializeProject`, git-first per D4
   — with golden documents per mode holding the format still, and D5's early return so a
   project nobody edited is not written and its stamp does not churn.
@@ -39,7 +49,7 @@ persistence design — so this is one plan with a table of the handful of values
   measurements rather than assumptions, including the two things this document had wrong
   (macOS gets no exported UTI, and a watch on the open *file* is single-shot); the spikes'
   temporary `fileAssociations` were reverted on purpose, so that neither app declares a
-  document type it cannot yet open — F4 adds the declaration and the handler together.
+  document type it cannot yet open — F4 added the declaration and the handler together.
 - **S1 is GO on macOS and Linux and unverified on Windows**, so §3's decision stands and is
   not reopened. Windows is the one platform where the double-click is still taken on trust,
   and it is a real Windows job (§6, §11).
@@ -584,6 +594,7 @@ build/
 src/
 ├── main/
 │   ├── document.ts         new   read/write/stat the open document: atomic, stamped
+│   ├── documentFile.ts     new   the file mechanics, with no Electron in them
 │   ├── openRequests.ts     new   open-file, argv, second-instance, drop → one message (D15)
 │   ├── recent.ts           new   recent documents in userData (D16)
 │   ├── windowState.ts            + the last document's path (D11)
@@ -613,6 +624,7 @@ src/
     │                             name and modified indicator in the header
     ├── router/index.ts           the home route picked from isDesktop() (D13)
     ├── utils/shortcuts.ts        `back` → Close Document on the desktop (D14)
+    ├── testing/documentBridge.ts new  one fake of main, for the three specs that need it
     ├── utils/documents.ts  new   external-change handling and the conflict prompt (D7)
     └── utils/strings.ts    new   the words that differ per shell
 ```
@@ -897,22 +909,108 @@ What F3 settled, for the phases that inherit it:
 
 **Goal:** the operating system opens the editor when a project file is opened.
 
-- [ ] Document icon: a second master and a second `gen-icon` output
-- [ ] `fileAssociations` in `electron-builder.yml` for all three platforms, **plus the macOS
+- [x] Document icon: a second master and a second `gen-icon` output
+- [x] `fileAssociations` in `electron-builder.yml` for all three platforms, **plus the macOS
       UTI from §9 via `mac.extendInfo`** — electron-builder emits only `CFBundleDocumentTypes`,
       so without this the document type is an unnamed dynamic UTI (S1)
-- [ ] `openRequests.ts` — `open-file`, `argv`, `second-instance`, drag-and-drop, all reduced
+- [x] `openRequests.ts` — `open-file`, `argv`, `second-instance`, drag-and-drop, all reduced
       to one main→renderer message (D15); macOS **queues `open-file` until the window exists**
       and never reads `argv` (S2); the drop path calls `webUtils.getPathForFile` in the
       preload (S5)
-- [ ] Opening a document while one is open flushes the current one first, then replaces it
-- [ ] Reopen-the-last-document on launch (D11), and recents (D16) in the File menu and on the
+- [x] Opening a document while one is open flushes the current one first, then replaces it
+- [x] Reopen-the-last-document on launch (D11), and recents (D16) in the File menu and on the
       start screen
 
-**Exit criteria:** double-clicking a document from each platform's file manager opens the
-editor in the right mode, from a cold start and while already running; `open <file>` and
-`<app> <file>` from a shell do the same; a dropped file opens; quitting with a document open
-and relaunching returns to it; the document icon is what Finder and Explorer show.
+**Exit criteria: met on macOS and on Linux short of a GUI click; Windows is unverified and
+is not claimed.** Both repos: full suite green (TMS9918 656, VIC-20 746), `oxlint`, `eslint`,
+`vue-tsc --build`, `npm run build` and `npm run build:web` all green.
+
+**Verified in the running desktop app**, the standard `CLAUDE.md` sets — the packaged
+`--dir` build, registered with LaunchServices, driven by real `open` calls and by the real
+menu, with the app's own profile moved aside and restored afterwards. The list below was
+run in **TMS9918**; the **VIC-20** app was then driven for the cold-start double-click, the
+reopen-at-launch, the drop and Open Recent, and behaved identically — a
+`Title Screen.vic20` resolved to `com.acwright.vic20editor.project`, opened cold, and came
+back as "Title Screen · Mixed" after a quit and relaunch. The measurements that are about
+one implementation rather than one app — the flush ordering, the corrupt-file banner — were
+made once, in TMS9918, against code the two repos share line for line.
+
+- **`mdls` on a project file answers `com.acwright.tms9918editor.project`**, with a Kind of
+  "TMS9918 Editor Project" — the exported UTI is live, and S1's unnamed
+  `dyn.ah62d4rv4ge81k5pxhe6xcsa` is gone. `document.icns` ships in `Contents/Resources` and
+  both the type declaration and the document-type entry name it.
+- **A cold-start double-click opened the document**: `open "…/Alpha Voyager.tms9918"` with
+  the app not running launched it and *adopted* the file — which only happens inside
+  `takePending`, so this is the renderer having asked for it, not main having guessed.
+  The path was recorded fully resolved (`/private/tmp/…`), as S1 said it would be.
+- **A double-click against the running app opened the second document**, in the same
+  process — one instance, recents reordered newest-first.
+- **Quitting and relaunching returned to the document**, in its own mode: the route was
+  `/edit/bbbb…` and the header read "Beta Sprites · Sprite Mode" on the first paint. The
+  launcher never appeared, because the pending document is taken before `app.mount`.
+- **Closing the document and relaunching showed the launcher**: `lastDocument` went to
+  `null` on close, so a document put away deliberately is not dragged back (D11).
+- **The flush ordering was measured, with a negative control.** With Beta open, a fill was
+  dispatched and another document asked for *inside* the 500 ms autosave window: Beta's file
+  changed on disk and Alpha's did not, and the editor then showed Alpha. The control ran in
+  the same session — with Alpha open, an edit changed Alpha and left Beta alone — so the
+  measurement can tell which file a write lands in.
+- **File ▸ Open Recent listed both documents and opened the one clicked**, driven through
+  System Events. The menu reads New Project… │ Open Recent ▸ │ Save │ Close Document, and
+  the submenu ends in a separator and *Clear Menu*.
+- **A dropped file opened**, synthesized as a real drop over CDP (`Input.dispatchDragEvent`)
+  as S5 was. So did a legacy `.tms9918.json`, under the name `Legacy Export` — while `mdls`
+  reports it as `public.json`, which is D3's stated cost measured again.
+- **A corrupt file that arrived while a document was open reported why and changed
+  nothing**: the banner read `Unsupported project version: undefined.` and Beta Sprites
+  stayed on screen.
+- **The start screen listed both recents with their folders**, and *Open…* went through the
+  same arrival path — the dialog was driven for real, and the document it picked opened.
+
+**Linux: verified against the built package, short of a GUI click.** The deb carries
+`MimeType=application/x-tms9918-project;` and `Exec=… %U`, and a MIME package with
+`<glob pattern="*.tms9918"/>`. In a Debian container, after the `update-mime-database` and
+`update-desktop-database` a real install runs, `xdg-mime query filetype` returned the
+project type and `xdg-mime query default` returned `tms9918-editor.desktop`; the entry
+passes `desktop-file-validate`. The compound legacy name still resolves to
+`application/json`. What was **not** measured is a click in a GUI file manager.
+
+**Windows: still not measured, and still the one platform taken on trust** — the NSIS
+installer builds under Wine and cannot be run there (§6, §11). `fileAssociations` is
+non-empty, so electron-builder emits its `registerFileAssociations` macro; that is a source
+reading, not a run.
+
+What F4 settled, for the phases that inherit it:
+
+- **Main announces; the renderer adopts.** `requestOpen` only makes a path *pending* and
+  sends one message. Nothing moves the open document except `takePending`, which the
+  renderer calls after `flushAutosave` — so the debounced write that was already in flight
+  lands in the file it was written for. Main cannot do this on its own: the unsaved edit is
+  in the renderer, and F5's reload prompt will need the same ordering.
+- **The Open dialog is not special.** It puts what the user picked into the same queue, and
+  answers with nothing. `DocumentStore.requestOpen()` returning `void` reads oddly until you
+  notice that it is what stops the dialog and a double-click from drifting apart.
+- **The renderer holds an opaque id for a recent, never a path** — a hash of the resolved
+  path, stable across launches. D8 survives Open Recent intact, and the start screen still
+  shows the folder, because a *directory to display* was already outbound-only (D10).
+- **`documentFile.ts` is the file mechanics with no Electron in it.** `recent.ts` needs
+  `documentName` and `document.ts` needs `recent.ts`; splitting the pure half out is what
+  avoids a cycle, and the node spec now runs without mocking Electron at all.
+- **`window-state.json` is the launch-state file, not just the window's.** The document to
+  reopen lives beside the bounds because they are one question, asked once; both writers
+  merge rather than replace, which a debounced bounds save and a document opening at the
+  same moment require. A `v1.6` file simply has no `lastDocument` key.
+- **The single-instance lock is D17's, not a nicety.** Without it a double-click on Windows
+  or Linux starts a second copy of the app, with a second window and a second autosave loop
+  over the same files.
+- **The document icon is a silhouette, not a second app icon.** A page with a turned corner
+  and the app's own 8×8 glyph on it, generated from the same source as the favicons. There
+  is no Linux document icon: electron-builder's MIME package hard-codes freedesktop's
+  `x-office-document` and offers no way to point at ours.
+- **Two fakes became one.** `src/renderer/src/testing/documentBridge.ts` is a small model of
+  main — a map of path → text, one open document, one pending one — and the adapter's, the
+  store's and the start screen's specs all build on it. It hands the renderer no path, so a
+  spec cannot pass on something the app could not do.
 
 ### Phase F5 — Living in a git worktree
 

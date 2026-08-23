@@ -31,8 +31,51 @@ extraResources:
   - from: build/icon.png
     to: icon.png
 
+# The document type, on all three platforms (PLAN.md D3, Phase F4). One
+# extension, not the compound v1 one: Windows associates on the last extension
+# only, so claiming `.vic20.json` would mean claiming `.json` system-wide.
+# Legacy exports still open through Open… and by drag-and-drop, and never by
+# double-click — the honest half of "existing files stay valid forever" (S1).
+#
+# `icon` resolves against buildResources and gains its own extension per
+# platform: build/document.icns and build/document.ico, both from
+# `npm run icons`.
+fileAssociations:
+  - ext: vic20
+    name: VIC-20 Project
+    description: VIC-20 Editor project
+    mimeType: application/x-vic20-project
+    role: Editor
+    rank: Owner
+    icon: document
+
 mac:
   category: public.app-category.developer-tools
+  # electron-builder emits `CFBundleDocumentTypes` and nothing else — measured,
+  # not assumed (S1). The association works without this, but the extension
+  # resolves to a *dynamic* UTI (`dyn.ah62d4rv4ge81k5pxhe6xcsa`): a type with no
+  # name, no description and no icon of its own, which is what Finder's Get Info
+  # and its Kind column then show. Exporting the type is what names it.
+  #
+  # Only the declaration goes here. The `CFBundleDocumentTypes` entry that says
+  # this app opens the type is `fileAssociations`' own, and electron-builder
+  # merges anything written here into the same array — a second entry for the
+  # same extension would be one for LaunchServices to choose between.
+  extendInfo:
+    UTExportedTypeDeclarations:
+      - UTTypeIdentifier: com.acwright.vic20editor.project
+        UTTypeDescription: VIC-20 Project
+        # Copied into Contents/Resources by `fileAssociations[].icon`.
+        UTTypeIconFile: document.icns
+        # A project file *is* JSON (D2), and saying so is what gives it Quick
+        # Look and a sensible fallback in editors that know the parent type.
+        UTTypeConformsTo:
+          - public.json
+        UTTypeTagSpecification:
+          public.filename-extension:
+            - vic20
+          public.mime-type:
+            - application/x-vic20-project
   target:
     - target: dmg
       arch:

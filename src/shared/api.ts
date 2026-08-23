@@ -11,7 +11,13 @@
  * tree running in two shells.
  */
 
-import type { CreateDocumentRequest, DocumentResult, DocumentStamp, OpenDocument } from './document'
+import type {
+  CreateDocumentRequest,
+  DocumentResult,
+  DocumentStamp,
+  OpenDocument,
+  RecentDocument,
+} from './document'
 import type { MenuContext } from './menu'
 
 /** The platforms we ship for. Anything else falls through as a bare string. */
@@ -88,8 +94,38 @@ export interface AppApi {
      * rather than overwriting when a file of that name is already there.
      */
     create(request: CreateDocumentRequest): Promise<DocumentResult<OpenDocument>>
-    /** Run an open dialog and adopt what was chosen. `none` if cancelled. */
-    open(): Promise<DocumentResult<OpenDocument>>
+    /**
+     * Run an open dialog. It resolves when the dialog closes and carries
+     * nothing: what the user chose arrives through `onPending` like every
+     * other way into a document (D15).
+     */
+    open(): Promise<void>
+    /**
+     * A document is waiting — a double-click, a drop, Open Recent, the Open
+     * dialog, or the last document at launch (D11, D15). Returns an
+     * unsubscribe function.
+     */
+    onPending(callback: () => void): () => void
+    /**
+     * Adopt what is waiting. `none` when nothing is, which is what a launch
+     * with no document to reopen answers.
+     *
+     * **Flush before calling this.** Main swaps the open document here, so a
+     * write still in the autosave window has to have landed in the old file
+     * already (D17).
+     */
+    takePending(): Promise<DocumentResult<OpenDocument>>
+    /**
+     * The user dropped a file on the window. The preload turns the `File` into
+     * a path with `webUtils.getPathForFile` (S5) — which the isolated renderer
+     * has no way to do itself — and hands main a path the user just produced,
+     * exactly as a dialog would (D8).
+     */
+    dropped(file: File): void
+    /** Recent Documents, for the start screen's list (D16). */
+    recent(): Promise<RecentDocument[]>
+    /** Open a recent document by its opaque id. Arrives through `onPending`. */
+    openRecent(id: string): Promise<void>
     /**
      * Re-read the open document. `none` when there is none — which is how the
      * renderer finds its way back after a reload (D9).

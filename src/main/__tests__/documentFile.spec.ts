@@ -1,7 +1,15 @@
-import { mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
+import {
+  mkdtempSync,
+  mkdirSync,
+  readFileSync,
+  readdirSync,
+  realpathSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
 /**
  * The file mechanics behind the open document (PLAN.md D6), in the node vitest
@@ -11,20 +19,20 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
  * write really is atomic, that a failed write leaves nothing behind, and that
  * the two extensions a document can arrive under both come back with the right
  * name. The dialogs and the IPC wiring are verified by driving the app.
+ *
+ * `documentFile.ts` imports no Electron, which is what lets this run straight
+ * rather than behind a mock of it.
  */
 
-// `document.ts` imports electron at module scope. Nothing under test touches
-// these, but the import has to resolve.
-vi.mock('electron', () => ({
-  app: { getPath: () => tmpdir() },
-  dialog: {},
-  ipcMain: { handle: () => {} },
-  shell: {},
-  BrowserWindow: { fromWebContents: () => null },
-}))
-
-const { documentFileName, documentName, readDocumentAt, stampOf, writeDocumentAt } =
-  await import('../document')
+import {
+  documentFileName,
+  documentName,
+  isDocumentPath,
+  readDocumentAt,
+  resolveDocumentPath,
+  stampOf,
+  writeDocumentAt,
+} from '../documentFile'
 
 let directory: string
 
@@ -163,5 +171,36 @@ describe('readDocumentAt', () => {
     const text = '{\n  "id": "abc"\n}\n'
     writeDocumentAt(path, text)
     expect(readDocumentAt(path).text).toBe(text)
+  })
+})
+
+describe('isDocumentPath', () => {
+  it('recognises the name documents are written under, and the v1 one (D3)', () => {
+    expect(isDocumentPath('/projects/Title Screen.vic20')).toBe(true)
+    expect(isDocumentPath('/projects/Title Screen.vic20.json')).toBe(true)
+    expect(isDocumentPath('/projects/TITLE SCREEN.VIC20')).toBe(true)
+  })
+
+  // What this keeps out of `documentFromArgv`: Electron's own switches, the
+  // `.` electron-vite passes in development, and a flag's value.
+  it('refuses anything else', () => {
+    expect(isDocumentPath('.')).toBe(false)
+    expect(isDocumentPath('/projects/notes.json')).toBe(false)
+    expect(isDocumentPath('--remote-debugging-port=9222')).toBe(false)
+  })
+})
+
+describe('resolveDocumentPath', () => {
+  it('answers with an absolute path for a file that is there', () => {
+    const path = join(directory, 'Alpha.vic20')
+    writeFileSync(path, '{}\n', 'utf-8')
+    // The directory itself may be a symlink (/tmp is one on macOS), which is
+    // exactly what this resolves — so it is compared against the same answer
+    // rather than against the path that went in (S1).
+    expect(resolveDocumentPath(path)).toBe(realpathSync(path))
+  })
+
+  it('answers null for a path that is not there', () => {
+    expect(resolveDocumentPath(join(directory, 'missing.vic20'))).toBeNull()
   })
 })

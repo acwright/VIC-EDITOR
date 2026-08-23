@@ -18,6 +18,8 @@
  *   icon-master.png      — 1024×1024 source for the desktop app icon; feed it
  *                          to `npm run icons` (build/gen-icon.mjs) to get the
  *                          .icns/.ico/.png set electron-builder packages
+ *   icon-document-master.png — 1024×1024 source for the *document* icon, the
+ *                          one Finder and Explorer draw for a .vic20 file
  *
  * Zero dependencies: PNGs are encoded by hand using Node's built-in zlib.
  */
@@ -45,6 +47,7 @@ const GLYPH = [
 
 const BLACK = [10, 10, 10, 255] // ink-950 (#0a0a0a) — matches the app background
 const WHITE = [245, 245, 245, 255] // ink-100
+const FOLD = [200, 200, 200, 255] // ink-300 — the underside of the folded corner
 const CLEAR = [0, 0, 0, 0]
 
 // --- PNG encoding (RGBA, 8-bit, no interlace) ---------------------------------
@@ -172,6 +175,97 @@ function renderMasterRgba(size) {
   return px
 }
 
+/**
+ * Render the *document* icon master: a page, corner turned down, with the app's
+ * glyph on it.
+ *
+ * It has to read as "a file this app owns" at 32 px in a Finder list, which
+ * rules out a second copy of the app icon — a document icon that is just the
+ * app icon says "application" at every size. So the silhouette is the thing
+ * doing the work: portrait, folded corner, and the same 8×8 glyph the app icon
+ * carries, inverted onto a light page. Black-and-white, like everything else
+ * here.
+ */
+function renderDocumentMasterRgba(size) {
+  const px = Buffer.alloc(size * size * 4) // zero-filled: fully transparent
+  const set = (x, y, [r, g, b, a]) => {
+    const i = (y * size + x) * 4
+    px[i] = r
+    px[i + 1] = g
+    px[i + 2] = b
+    px[i + 3] = a
+  }
+
+  const u = size / 1024 // the geometry below is written at 1024
+  const x0 = 190 * u
+  const x1 = 834 * u
+  const y0 = 80 * u
+  const y1 = 944 * u
+  const fold = 210 * u
+  const radius = 18 * u
+  const stroke = 14 * u
+  // Inside the page is everything below-left of the fold's diagonal, which runs
+  // at 45° from (x1 - fold, y0) to (x1, y0 + fold).
+  const diagonal = y0 - x1 + fold
+
+  /** The color at one sub-sample, or CLEAR outside the page. */
+  const sample = (x, y) => {
+    if (y - x <= diagonal) return CLEAR
+    if (x < x0 || x > x1 || y < y0 || y > y1) return CLEAR
+    // Rounded corners: outside the corner circle is outside the page. The
+    // top-right one is cut by the fold and needs no rounding.
+    const cx = Math.min(Math.max(x, x0 + radius), x1 - radius)
+    const cy = Math.min(Math.max(y, y0 + radius), y1 - radius)
+    const corner = Math.hypot(x - cx, y - cy)
+    if (corner > radius) return CLEAR
+
+    const toEdge = Math.min(x - x0, x1 - x, y - y0, y1 - y, radius - corner + stroke)
+    const toDiagonal = (y - x - diagonal) / Math.SQRT2
+    if (toEdge < stroke || toDiagonal < stroke) return BLACK
+    // The flap: the corner square on the page side of the diagonal.
+    return x > x1 - fold && y < y0 + fold ? FOLD : WHITE
+  }
+
+  // 4×4 supersampling, averaged premultiplied so the outline does not fringe.
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
+      let r = 0
+      let g = 0
+      let b = 0
+      let a = 0
+      for (let sy = 0; sy < 4; sy++) {
+        for (let sx = 0; sx < 4; sx++) {
+          const [sr, sg, sb, sa] = sample(x + (sx + 0.5) / 4, y + (sy + 0.5) / 4)
+          r += sr * sa
+          g += sg * sa
+          b += sb * sa
+          a += sa
+        }
+      }
+      if (a === 0) continue
+      set(x, y, [Math.round(r / a), Math.round(g / a), Math.round(b / a), Math.round(a / 16)])
+    }
+  }
+
+  // The glyph, on whole pixels so it stays crisp, centered on the page and
+  // pulled clear of the fold.
+  const cell = Math.max(1, Math.floor(((x1 - x0) * 0.6) / 8))
+  const grid = cell * 8
+  const offX = Math.round((x0 + x1) / 2 - grid / 2)
+  const offY = Math.round((y0 + y1) / 2 - grid / 2)
+  for (let gy = 0; gy < 8; gy++) {
+    for (let gx = 0; gx < 8; gx++) {
+      if (!GLYPH[gy][gx]) continue
+      for (let dy = 0; dy < cell; dy++) {
+        for (let dx = 0; dx < cell; dx++) {
+          set(offX + gx * cell + dx, offY + gy * cell + dy, BLACK)
+        }
+      }
+    }
+  }
+  return px
+}
+
 function encodePng(size, render = renderRgba) {
   const rgba = render(size)
   const stride = size * 4
@@ -250,3 +344,4 @@ out('icon-512.png', encodePng(512))
 
 mkdirSync(BUILD_DIR, { recursive: true })
 outBuild('icon-master.png', encodePng(1024, renderMasterRgba))
+outBuild('icon-document-master.png', encodePng(1024, renderDocumentMasterRgba))

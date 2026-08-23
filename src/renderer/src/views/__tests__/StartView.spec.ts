@@ -7,68 +7,13 @@ import { createProject } from '@/domain/factory'
 import { serializeProject } from '@/domain/serialization'
 import { SAMPLES } from '@/samples'
 import { useProjectsStore } from '@/stores/projects'
+import { fakeDocumentBridge, type FakeDocumentBridge } from '@/testing/documentBridge'
 import type { AppApi } from '@shared/api'
-import type { DocumentResult, OpenDocument } from '@shared/document'
 
 const push = vi.fn<(to: string) => void>()
 vi.mock('vue-router', () => ({ useRouter: () => ({ push: (to: string) => push(to) }) }))
 
-/** Main, faked far enough for the launcher to talk to it. */
-function fakeMain() {
-  let document: OpenDocument | null = null
-
-  function ok<T>(value: T): DocumentResult<T> {
-    return { status: 'ok', value }
-  }
-
-  const api: AppApi['document'] = {
-    async create({ name, text }) {
-      document = {
-        path: `/documents/${name}.vic20`,
-        name,
-        text,
-        stamp: { mtimeMs: 1, size: text.length },
-      }
-      return ok(document)
-    },
-    async open() {
-      return document ? ok(document) : { status: 'none' }
-    },
-    async current() {
-      return document ? ok(document) : { status: 'none' }
-    },
-    async write() {
-      return { status: 'error', reason: 'not used' }
-    },
-    async close() {
-      document = null
-    },
-    async reveal() {},
-    async defaultLocation() {
-      return '/Users/acwright/Documents'
-    },
-    async chooseLocation() {
-      return '/Volumes/Work/charsets'
-    },
-  }
-
-  return {
-    api,
-    get document() {
-      return document
-    },
-    seed(name: string, text: string) {
-      document = {
-        path: `/documents/${name}.vic20`,
-        name,
-        text,
-        stamp: { mtimeMs: 1, size: text.length },
-      }
-    },
-  }
-}
-
-let main: ReturnType<typeof fakeMain>
+let main: FakeDocumentBridge
 
 function mountView() {
   const errors: unknown[] = []
@@ -80,7 +25,7 @@ function mountView() {
 
 beforeEach(() => {
   push.mockClear()
-  main = fakeMain()
+  main = fakeDocumentBridge()
   vi.stubGlobal('api', {
     document: main.api,
     // The view reports what it offers as it mounts, and subscribes to the
@@ -126,11 +71,11 @@ describe('StartView', () => {
 
     await wrapper.findAll('button')[0]!.trigger('click')
     await flushPromises()
-    expect(dialog.props('location')).toBe('/Users/acwright/Documents')
+    expect(dialog.props('location')).toBe('/documents')
 
     dialog.vm.$emit('chooseLocation')
     await flushPromises()
-    expect(dialog.props('location')).toBe('/Volumes/Work/charsets')
+    expect(dialog.props('location')).toBe('/elsewhere')
   })
 
   it('creates a document and goes to the editor', async () => {
@@ -157,7 +102,7 @@ describe('StartView', () => {
 
     const dialog = wrapper.getComponent(NewProjectDialog)
     expect(dialog.props('sample')).toEqual(sample)
-    expect(dialog.props('location')).toBe('/Users/acwright/Documents')
+    expect(dialog.props('location')).toBe('/documents')
 
     dialog.vm.$emit('create', { name: 'My Copy', type: 'hires' })
     await flushPromises()
@@ -166,23 +111,48 @@ describe('StartView', () => {
     expect(main.document?.text).toContain('"type": "' + sample.build().type + '"')
   })
 
-  it('opens an existing document and goes to the editor', async () => {
+  // *Open…* asks main for a document and is answered with nothing: what the
+  // dialog picked arrives the same way a double-click does, and `App.vue` is
+  // what routes to it (D15). So what this view is responsible for is the ask.
+  it('asks for a document rather than opening one itself', async () => {
+    const project = createProject({ name: 'Title Screen', type: 'hires' })
+    main.stage('Title Screen', serializeProject(project))
+    const { wrapper } = mountView()
+
+    await wrapper.findAll('button')[1]!.trigger('click')
+    await flushPromises()
+
+    expect(push).not.toHaveBeenCalled()
+    // The document is waiting, which is the whole of what the click had to do.
+    expect(await main.api.takePending()).toMatchObject({ status: 'ok' })
+  })
+
+  // D16: recents are the primary navigation here, since there is no list.
+  it('lists recent documents, and asks for one by its opaque id', async () => {
     const project = createProject({ name: 'Title Screen', type: 'hires' })
     main.seed('Title Screen', serializeProject(project))
     const { wrapper } = mountView()
-
-    await wrapper.findAll('button')[1]!.trigger('click')
     await flushPromises()
-    expect(push).toHaveBeenCalledWith(`/edit/${project.id}`)
+
+    const list = wrapper.get('[aria-label="Recent documents"]')
+    expect(list.text()).toContain('Title Screen')
+    expect(list.text()).toContain('/documents')
+
+    await list.findAll('button')[0]!.trigger('click')
+    await flushPromises()
+    expect(await main.api.takePending()).toMatchObject({ status: 'ok' })
   })
 
-  it('says why an unreadable document did not open, and stays put', async () => {
-    main.seed('Broken', '{ "not": "a project" }')
+  it('shows no recents section at all when there are none', async () => {
     const { wrapper } = mountView()
-
-    await wrapper.findAll('button')[1]!.trigger('click')
     await flushPromises()
-    expect(push).not.toHaveBeenCalled()
-    expect(wrapper.get('[role="alert"]').text()).toBeTruthy()
+    expect(wrapper.find('[aria-label="Recent documents"]').exists()).toBe(false)
+  })
+
+  it('shows why something failed, in a banner it can dismiss', async () => {
+    const { wrapper } = mountView()
+    useProjectsStore().lastError = 'That document could not be opened.'
+    await flushPromises()
+    expect(wrapper.get('[role="alert"]').text()).toContain('could not be opened')
   })
 })

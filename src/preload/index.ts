@@ -1,4 +1,4 @@
-import { contextBridge, ipcRenderer } from 'electron'
+import { contextBridge, ipcRenderer, webUtils } from 'electron'
 import { IPC } from '../shared/ipc'
 import type { AppApi, OpenFileRequest, OpenedTextFile, SaveFileRequest } from '../shared/api'
 import type {
@@ -6,6 +6,7 @@ import type {
   DocumentResult,
   DocumentStamp,
   OpenDocument,
+  RecentDocument,
 } from '../shared/document'
 import type { MenuContext } from '../shared/menu'
 
@@ -35,7 +36,25 @@ const api: AppApi = {
   document: {
     create: (request: CreateDocumentRequest): Promise<DocumentResult<OpenDocument>> =>
       ipcRenderer.invoke(IPC.DOCUMENT_CREATE, request),
-    open: (): Promise<DocumentResult<OpenDocument>> => ipcRenderer.invoke(IPC.DOCUMENT_OPEN),
+    open: (): Promise<void> => ipcRenderer.invoke(IPC.DOCUMENT_OPEN),
+    onPending: (callback: () => void): (() => void) => {
+      const handler = (): void => callback()
+      ipcRenderer.on(IPC.DOCUMENT_PENDING, handler)
+      return () => ipcRenderer.off(IPC.DOCUMENT_PENDING, handler)
+    },
+    takePending: (): Promise<DocumentResult<OpenDocument>> =>
+      ipcRenderer.invoke(IPC.DOCUMENT_TAKE_PENDING),
+    // The one place a path is *derived* rather than passed through, and it has
+    // to be here: `webUtils` is undefined in the main process and unreachable
+    // from the isolated renderer, so only the preload can turn a dropped `File`
+    // into something main can open (S5). The renderer hands over the drop, not
+    // a filename (D8).
+    dropped: (file: File): void => {
+      const path = webUtils.getPathForFile(file)
+      if (path) ipcRenderer.send(IPC.DOCUMENT_DROPPED, path)
+    },
+    recent: (): Promise<RecentDocument[]> => ipcRenderer.invoke(IPC.DOCUMENT_RECENT),
+    openRecent: (id: string): Promise<void> => ipcRenderer.invoke(IPC.DOCUMENT_OPEN_RECENT, id),
     current: (): Promise<DocumentResult<OpenDocument>> => ipcRenderer.invoke(IPC.DOCUMENT_CURRENT),
     write: (text: string): Promise<DocumentResult<DocumentStamp>> =>
       ipcRenderer.invoke(IPC.DOCUMENT_WRITE, text),

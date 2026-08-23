@@ -3,13 +3,21 @@ import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 
 /**
- * Window size and position, remembered across launches in
- * `<userData>/window-state.json`.
+ * What a launch has to remember: the window's size and position, and the
+ * document that was open — `<userData>/window-state.json`.
  *
  * Synchronous I/O, on the reference project's `SettingsService` model: the file
  * is one small object, it is read once at launch and written after the user
  * stops dragging, and any read failure falls back to the defaults rather than
  * blocking startup on a corrupt file.
+ *
+ * The document's path joined the window's bounds here rather than in a file of
+ * its own because they are one question — *what was this app doing when it last
+ * quit* (PLAN.md D11) — asked once, at the same moment, and answered before the
+ * window is shown. Both writers go through `writeState`, which merges rather
+ * than replaces, so the debounced bounds save and a document opening cannot
+ * overwrite each other. A file written by `v1.6` simply has no `lastDocument`
+ * key, and reads back as "nothing was open".
  */
 
 export interface WindowState {
@@ -178,9 +186,41 @@ function save(state: WindowState): void {
   // `useContentSize` describes how a window was *created*, not where it ended
   // up, so it is not part of what a saved window is.
   const { width, height, x, y, maximized } = state
+  writeState({ width, height, x, y, maximized })
+}
+
+/**
+ * The document to reopen at the next launch, or null when a document was
+ * deliberately closed (D11).
+ */
+export function loadLastDocument(): string | null {
+  const stored = readState()['lastDocument']
+  return typeof stored === 'string' && stored.length > 0 ? stored : null
+}
+
+export function saveLastDocument(path: string | null): void {
+  if (loadLastDocument() === path) return
+  writeState({ lastDocument: path })
+}
+
+function readState(): Record<string, unknown> {
+  try {
+    const parsed: unknown = JSON.parse(readFileSync(FILE(), 'utf-8'))
+    return parsed !== null && typeof parsed === 'object' ? (parsed as Record<string, unknown>) : {}
+  } catch {
+    return {}
+  }
+}
+
+/**
+ * Merge `patch` into the file. Two independent writers share it — a window
+ * being dragged and a document being opened — and neither may drop what the
+ * other last wrote.
+ */
+function writeState(patch: Record<string, unknown>): void {
   try {
     mkdirSync(app.getPath('userData'), { recursive: true })
-    writeFileSync(FILE(), JSON.stringify({ width, height, x, y, maximized }, null, 2), 'utf-8')
+    writeFileSync(FILE(), JSON.stringify({ ...readState(), ...patch }, null, 2), 'utf-8')
   } catch (error) {
     // A window that cannot remember where it was is not a reason to fail.
     console.error('[windowState] save:', error)

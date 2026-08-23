@@ -2,9 +2,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
 import { createProject } from '@/domain/factory'
 import { serializeProject } from '@/domain/serialization'
+import { fakeDocumentBridge, type FakeDocumentBridge } from '@/testing/documentBridge'
 import { useProjectsStore } from '../projects'
 import type { AppApi } from '@shared/api'
-import type { DocumentResult, OpenDocument } from '@shared/document'
 
 /**
  * The projects store on the desktop side of its one fork (PLAN.md D1, Phase
@@ -17,76 +17,10 @@ import type { DocumentResult, OpenDocument } from '@shared/document'
  * are kept in step.
  */
 
-/** Main, faked: one document, and a note of everything written to it. */
-function fakeMain() {
-  let document: OpenDocument | null = null
-  let failure: string | null = null
-  const writes: string[] = []
-
-  function ok<T>(value: T): DocumentResult<T> {
-    return { status: 'ok', value }
-  }
-
-  const api: AppApi['document'] = {
-    async create({ name, text }) {
-      if (failure) return { status: 'error', reason: failure }
-      document = {
-        path: `/documents/${name}.vic20`,
-        name,
-        text,
-        stamp: { mtimeMs: 1, size: text.length },
-      }
-      return ok(document)
-    },
-    async open() {
-      return document ? ok(document) : { status: 'none' }
-    },
-    async current() {
-      return document ? ok(document) : { status: 'none' }
-    },
-    async write(text) {
-      if (failure) return { status: 'error', reason: failure }
-      if (!document) return { status: 'error', reason: 'No document is open.' }
-      writes.push(text)
-      document = { ...document, text, stamp: { mtimeMs: Date.now(), size: text.length } }
-      return ok(document.stamp)
-    },
-    async close() {
-      document = null
-    },
-    async reveal() {},
-    async defaultLocation() {
-      return '/documents'
-    },
-    async chooseLocation() {
-      return '/elsewhere'
-    },
-  }
-
-  return {
-    api,
-    writes,
-    get document() {
-      return document
-    },
-    seed(name: string, text: string) {
-      document = {
-        path: `/documents/${name}.vic20`,
-        name,
-        text,
-        stamp: { mtimeMs: 1, size: text.length },
-      }
-    },
-    fail(reason: string) {
-      failure = reason
-    },
-  }
-}
-
-let main: ReturnType<typeof fakeMain>
+let main: FakeDocumentBridge
 
 beforeEach(() => {
-  main = fakeMain()
+  main = fakeDocumentBridge()
   // The whole of `isDesktop()`: the preload bridge being there at all.
   vi.stubGlobal('api', { document: main.api } satisfies Partial<AppApi>)
   setActivePinia(createPinia())
@@ -217,13 +151,81 @@ describe('projects store, on the desktop', () => {
     expect(main.writes).toEqual([])
   })
 
-  it('opens a document through the Open dialog', async () => {
-    const project = createProject({ name: 'Title Screen', type: 'multicolor' })
+  it('takes a document that arrived, and names it', async () => {
+    // Every way in ends here (D15); this is the shape of all of them.
+    const project = createProject({ name: 'Title Screen', type: 'hires' })
+    main.arrive('Title Screen', serializeProject(project))
+
+    const store = useProjectsStore()
+    expect((await store.takePendingDocument())?.id).toBe(project.id)
+    expect(store.current?.id).toBe(project.id)
+    expect(store.documentName).toBe('Title Screen')
+    expect(store.saveState).toBe('saved')
+  })
+
+  it('answers null when nothing is waiting, and leaves what is open alone', async () => {
+    // A launch with no document to reopen (D11), and a cancelled Open dialog.
+    const store = useProjectsStore()
+    const project = (await store.create({ name: 'Alpha', type: 'hires' }))!
+    await store.open(project.id)
+
+    expect(await store.takePendingDocument()).toBeNull()
+    expect(store.current?.id).toBe(project.id)
+  })
+
+  it('flushes the open document into its own file before taking the next (D17)', async () => {
+    vi.useFakeTimers()
+    const store = useProjectsStore()
+    const first = (await store.create({ name: 'Alpha', type: 'hires' }))!
+    await store.open(first.id)
+
+    // An edit inside the 500 ms autosave window — the write main would
+    // otherwise perform *after* it had swapped documents.
+    store.current!.name = 'Alpha edited'
+    store.markDirty()
+
+    const second = createProject({ name: 'Beta', type: 'hires' })
+    main.arrive('Beta', serializeProject(second))
+    expect((await store.takePendingDocument())?.id).toBe(second.id)
+
+    // The edit went to Alpha's file, and Beta's is untouched by it.
+    expect(main.writes).toHaveLength(1)
+    expect(main.writes[0]).toContain('Alpha edited')
+    expect(main.document?.text).toBe(serializeProject(second))
+  })
+
+  it('says why an arriving document could not be read, and keeps the open one', async () => {
+    const store = useProjectsStore()
+    const project = (await store.create({ name: 'Alpha', type: 'hires' }))!
+    await store.open(project.id)
+
+    main.arrive('Broken', '{ "not": "a project" }')
+    expect(await store.takePendingDocument()).toBeNull()
+    expect(store.lastError).toBeTruthy()
+    expect(store.current?.id).toBe(project.id)
+  })
+
+  it('asks for a document rather than being answered with one', async () => {
+    // The dialog and Open Recent both resolve to nothing: what they asked for
+    // arrives through `takePendingDocument` (D15).
+    const project = createProject({ name: 'Title Screen', type: 'hires' })
+    main.stage('Title Screen', serializeProject(project))
+
+    const store = useProjectsStore()
+    await expect(store.openDocument()).resolves.toBeUndefined()
+    expect((await store.takePendingDocument())?.id).toBe(project.id)
+  })
+
+  it('lists recent documents, and opens one by its id (D16)', async () => {
+    const project = createProject({ name: 'Title Screen', type: 'hires' })
     main.seed('Title Screen', serializeProject(project))
 
     const store = useProjectsStore()
-    expect((await store.openDocument())?.id).toBe(project.id)
-    expect(store.documentName).toBe('Title Screen')
+    const recent = await store.recentDocuments()
+    expect(recent.map((entry) => entry.name)).toEqual(['Title Screen'])
+
+    await store.openRecentDocument(recent[0]!.id)
+    expect((await store.takePendingDocument())?.id).toBe(project.id)
   })
 
   it('reports where a new document would go', async () => {

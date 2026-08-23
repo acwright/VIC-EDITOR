@@ -19,6 +19,45 @@ if (capturePendingShare() && router.currentRoute.value.path !== '/') {
 // existing behavior and not something this changes.
 const projects = useProjectsStore()
 let stopBeforeQuit: (() => void) | undefined
+let stopPending: (() => void) | undefined
+
+/**
+ * A document has arrived (D15).
+ *
+ * Every way one can — a double-click, a file dropped on the window, Open
+ * Recent, the Open dialog — reaches main first and is announced here, and the
+ * store is what takes it: it flushes whatever the editor is holding into the
+ * *old* file before main swaps documents (D17). Routing is this component's
+ * half, because it is the one that has the router; a document that arrives
+ * while its own editor is on screen simply replaces what is in the store, and
+ * the route it is already on stays correct.
+ */
+async function openArrivedDocument(): Promise<void> {
+  const project = await projects.takePendingDocument()
+  if (!project) return
+  if (router.currentRoute.value.params['projectId'] !== project.id) {
+    await router.push(`/edit/${project.id}`)
+  }
+}
+
+/**
+ * A file dropped on the window opens it (S5).
+ *
+ * `dragover` has to be cancelled or the browser engine takes the drop itself
+ * and navigates the window to the file, which would replace the editor with a
+ * page of JSON. The `File` goes to the preload as it is: turning it into a path
+ * is `webUtils.getPathForFile`'s job, on the other side of the bridge, and the
+ * renderer never derives one (D8).
+ */
+function onDragOver(event: DragEvent): void {
+  event.preventDefault()
+}
+
+function onDrop(event: DragEvent): void {
+  event.preventDefault()
+  const file = event.dataTransfer?.files[0]
+  if (file) desktop()?.document.dropped(file)
+}
 
 onMounted(() => {
   const api = desktop()
@@ -30,9 +69,17 @@ onMounted(() => {
     await projects.flushAutosave()
     api.app.saveComplete()
   })
+  stopPending = api.document.onPending(() => void openArrivedDocument())
+  window.addEventListener('dragover', onDragOver)
+  window.addEventListener('drop', onDrop)
 })
 
-onUnmounted(() => stopBeforeQuit?.())
+onUnmounted(() => {
+  stopBeforeQuit?.()
+  stopPending?.()
+  window.removeEventListener('dragover', onDragOver)
+  window.removeEventListener('drop', onDrop)
+})
 </script>
 
 <template>

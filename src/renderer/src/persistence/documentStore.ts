@@ -12,6 +12,10 @@
  *   `null` exactly as a missing project does in the browser.
  * - **`save(project)` names no file.** It hands main the serialized text and
  *   main writes whatever it has open, atomically (D6).
+ * - **Opening is a request, not a call that returns a document.** Every way a
+ *   document can arrive — a double-click, a drop, Open Recent, the dialog, the
+ *   last document at launch — ends in `takePending` (D15), so there is one
+ *   place that parses a file and one place that names what is open.
  * - **Failures reject.** Cancelling a dialog is not a failure and resolves to
  *   `null`; a disk that said no throws `DocumentError` carrying main's own
  *   sentence, which the Pinia store turns into `lastError`.
@@ -25,7 +29,7 @@ import { deserializeProject, serializeProject } from '@/domain/serialization'
 import { desktop } from '@/utils/desktop'
 import { DocumentError, type DocumentStore } from './store'
 import type { AppApi } from '@shared/api'
-import type { DocumentResult } from '@shared/document'
+import type { DocumentResult, RecentDocument } from '@shared/document'
 
 /** The bridge's document surface. */
 type DocumentApi = AppApi['document']
@@ -87,8 +91,20 @@ export function createDocumentStore(api: DocumentApi = bridge()): DocumentStore 
       return take(unwrap(await api.create({ name: project.name, text: serializeProject(project) })))
     },
 
-    async openDocument(): Promise<Project | null> {
-      return take(unwrap(await api.open()))
+    async requestOpen(): Promise<void> {
+      await api.open()
+    },
+
+    async openRecent(id: string): Promise<void> {
+      await api.openRecent(id)
+    },
+
+    recent(): Promise<RecentDocument[]> {
+      return api.recent()
+    },
+
+    async takePending(): Promise<Project | null> {
+      return take(unwrap(await api.takePending()))
     },
 
     async closeDocument(): Promise<void> {
