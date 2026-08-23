@@ -4,6 +4,7 @@ import { createPinia, setActivePinia } from 'pinia'
 import { useEditorStore } from '@/stores/editor'
 import { useProjectsStore } from '@/stores/projects'
 import { pixelAspect } from '@/domain/vic'
+import { openTestProject } from '@/testing/project'
 import ScreenPanel from '../ScreenPanel.vue'
 
 /**
@@ -26,8 +27,7 @@ function mountPanel() {
   setActivePinia(createPinia())
   const projects = useProjectsStore()
   const editor = useEditorStore()
-  const project = projects.create({ name: 'Test', seed: 'blank', type: 'hires' })!
-  projects.open(project.id)
+  openTestProject({ name: 'Test', seed: 'blank', type: 'hires' })
   editor.reset()
   const wrapper = mount(ScreenPanel, { attachTo: document.body })
   return { wrapper, projects, editor }

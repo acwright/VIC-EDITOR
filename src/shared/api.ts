@@ -48,8 +48,13 @@ export interface AppApi {
     /**
      * Called when the window is closing. Flush, then call `saveComplete()`.
      * Returns an unsubscribe function.
+     *
+     * The callback may be async — flushing goes through async storage
+     * (PLAN.md D1) — and is expected to call `saveComplete()` itself once the
+     * flush settles. Nothing awaits the promise it returns; main's own
+     * 5-second safety valve is the backstop.
      */
-    onBeforeQuit(callback: () => void): () => void
+    onBeforeQuit(callback: () => void | Promise<void>): () => void
     /** Tell main the flush is done and it may close for real. */
     saveComplete(): void
   }

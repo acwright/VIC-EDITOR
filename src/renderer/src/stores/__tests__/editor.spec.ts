@@ -6,6 +6,7 @@ import { DEFAULT_FG } from '@/domain/palette'
 import { EMPTY_CELL } from '@/domain/screenOps'
 import { defaultSettings, type CreateProjectOptions } from '@/domain/factory'
 import { pixelAspect } from '@/domain/vic'
+import { openTestProject } from '@/testing/project'
 import { useEditorStore } from '../editor'
 import { useProjectsStore } from '../projects'
 
@@ -14,8 +15,7 @@ function setup(options: Partial<CreateProjectOptions> = {}) {
   setActivePinia(createPinia())
   const projects = useProjectsStore()
   const editor = useEditorStore()
-  const project = projects.create({ name: 'Test', seed: 'blank', type: 'hires', ...options })!
-  projects.open(project.id)
+  openTestProject({ name: 'Test', seed: 'blank', type: 'hires', ...options })
   editor.reset()
   return { projects, editor }
 }

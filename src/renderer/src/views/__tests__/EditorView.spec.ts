@@ -6,6 +6,7 @@ import HelpDialog from '@/components/HelpDialog.vue'
 import { useEditorStore } from '@/stores/editor'
 import { useProjectsStore } from '@/stores/projects'
 import { StorageQuotaError } from '@/persistence/repository'
+import { openTestProject } from '@/testing/project'
 
 const push = vi.fn<(to: string) => void>()
 vi.mock('vue-router', () => ({ useRouter: () => ({ push }) }))
@@ -16,13 +17,16 @@ vi.mock('vue-router', () => ({ useRouter: () => ({ push }) }))
  * which key means what, and `shortcuts.spec.ts` checks that; here we check
  * that the meaning reaches the store.
  */
-function setup(type: 'hires' | 'multicolor' | 'mixed' = 'hires') {
+async function setup(type: 'hires' | 'multicolor' | 'mixed' = 'hires') {
   localStorage.clear()
   setActivePinia(createPinia())
   const projects = useProjectsStore()
   const editor = useEditorStore()
-  const project = projects.create({ name: 'Test', seed: 'blank', type })!
+  const project = openTestProject({ name: 'Test', seed: 'blank', type })
   const wrapper = mount(EditorView, { props: { projectId: project.id } })
+  // The view opens the project through the async port (PLAN.md D1), so it is
+  // on its loading state until this settles.
+  await flushPromises()
   return { wrapper, projects, editor }
 }
 
@@ -44,8 +48,8 @@ beforeEach(() => {
 })
 
 describe('EditorView shortcuts', () => {
-  it('walks the character set with the brackets', () => {
-    const { editor } = setup()
+  it('walks the character set with the brackets', async () => {
+    const { editor } = await setup()
     press(']')
     press(']')
     expect(editor.selectedChar).toBe(2)
@@ -53,8 +57,8 @@ describe('EditorView shortcuts', () => {
     expect(editor.selectedChar).toBe(1)
   })
 
-  it('picks the brush mode from the digit row', () => {
-    const { editor } = setup()
+  it('picks the brush mode from the digit row', async () => {
+    const { editor } = await setup()
     press('2')
     expect(editor.brushMode).toBe('color')
     press('3')
@@ -63,8 +67,8 @@ describe('EditorView shortcuts', () => {
     expect(editor.brushMode).toBe('char')
   })
 
-  it('targets a color slot from the digit row (Phase 11)', () => {
-    const { editor } = setup('multicolor')
+  it('targets a color slot from the digit row (Phase 11)', async () => {
+    const { editor } = await setup('multicolor')
     press('5')
     expect(editor.targetSlot).toBe('border')
     press('7')
@@ -73,8 +77,8 @@ describe('EditorView shortcuts', () => {
     expect(editor.targetSlot).toBe('fg')
   })
 
-  it('transforms the character, and undoes it as one entry', () => {
-    const { editor } = setup()
+  it('transforms the character, and undoes it as one entry', async () => {
+    const { editor } = await setup()
     press('f') // fill
     expect(editor.currentPattern?.every((byte) => byte === 0xff)).toBe(true)
     press('z', { ctrlKey: true })
@@ -83,8 +87,8 @@ describe('EditorView shortcuts', () => {
     expect(editor.currentPattern?.every((byte) => byte === 0xff)).toBe(true)
   })
 
-  it('leaves the map alone while a text field has focus', () => {
-    const { editor } = setup()
+  it('leaves the map alone while a text field has focus', async () => {
+    const { editor } = await setup()
     const input = document.createElement('input')
     document.body.append(input)
     input.dispatchEvent(new KeyboardEvent('keydown', { key: 'f', bubbles: true }))
@@ -92,8 +96,8 @@ describe('EditorView shortcuts', () => {
     input.remove()
   })
 
-  it('zooms and toggles the grid and the aspect correction', () => {
-    const { editor } = setup()
+  it('zooms and toggles the grid and the aspect correction', async () => {
+    const { editor } = await setup()
     const before = editor.screenScale
     press('+')
     expect(editor.screenScale).toBe(before + 1)
@@ -107,7 +111,7 @@ describe('EditorView shortcuts', () => {
   })
 
   it('opens the help dialog on ?, listing the whole map', async () => {
-    const { wrapper } = setup()
+    const { wrapper } = await setup()
     const help = wrapper.getComponent(HelpDialog)
     expect(help.props('modelValue')).toBe(false)
 
@@ -123,13 +127,13 @@ describe('EditorView shortcuts', () => {
   })
 
   it('opens the same dialog from the header, for pointers with no keyboard', async () => {
-    const { wrapper } = setup()
+    const { wrapper } = await setup()
     await wrapper.get('button[aria-label="Keyboard Shortcuts"]').trigger('click')
     expect(wrapper.getComponent(HelpDialog).props('modelValue')).toBe(true)
   })
 
-  it('goes back to the project list on Escape', () => {
-    setup()
+  it('goes back to the project list on Escape', async () => {
+    await setup()
     press('Escape')
     expect(push).toHaveBeenCalledWith('/')
   })
@@ -137,13 +141,13 @@ describe('EditorView shortcuts', () => {
 
 describe('EditorView error states', () => {
   it('shows a failed save rather than sitting on "Unsaved"', async () => {
-    const { wrapper, projects, editor } = setup()
+    const { wrapper, projects, editor } = await setup()
     // Fill the store: every write from here on throws, as a real quota does
     const setItem = vi.spyOn(localStorage, 'setItem').mockImplementation(() => {
       throw new DOMException('quota', 'QuotaExceededError')
     })
     editor.applyTransform('fill')
-    projects.saveCurrent()
+    void projects.saveCurrent()
     await flushPromises()
 
     const alert = wrapper.get('[role="alert"]')
@@ -164,7 +168,7 @@ describe('EditorView error states', () => {
  */
 describe('EditorView responsive layout', () => {
   /** The two panel wrappers, in document order: character column, screen column. */
-  function columns(wrapper: ReturnType<typeof setup>['wrapper']) {
+  function columns(wrapper: Awaited<ReturnType<typeof setup>>['wrapper']) {
     return {
       character: wrapper.get('aside'),
       screen: wrapper.get('aside + div'),
@@ -172,7 +176,7 @@ describe('EditorView responsive layout', () => {
   }
 
   it('shows one column at a time on a phone, both at lg', async () => {
-    const { wrapper } = setup()
+    const { wrapper } = await setup()
     const { character, screen } = columns(wrapper)
 
     // Character first, and each column is laid out side by side from lg up

@@ -36,7 +36,7 @@ const router = useRouter()
 
 const version = __APP_VERSION__
 
-onMounted(() => store.refresh())
+onMounted(() => void store.refresh())
 
 /** The manager's own keys, from the same map the editor and README use. */
 const ACTIONS: Record<ManagerAction, () => void> = {
@@ -84,8 +84,8 @@ function openProject(id: string) {
 const showNewProject = ref(false)
 const showHelp = ref(false)
 
-function onCreate(options: CreateProjectOptions) {
-  const project = store.create(options)
+async function onCreate(options: CreateProjectOptions) {
+  const project = await store.create(options)
   if (project) {
     showNewProject.value = false
     openProject(project.id)
@@ -94,8 +94,8 @@ function onCreate(options: CreateProjectOptions) {
 }
 
 // --- Samples ---
-function loadSample(sample: Sample) {
-  const project = store.createFrom(sample.build())
+async function loadSample(sample: Sample) {
+  const project = await store.createFrom(sample.build())
   if (project) openProject(project.id)
 }
 
@@ -108,34 +108,40 @@ function startRename(summary: ProjectSummary) {
   renameValue.value = summary.name
 }
 
-function confirmRename() {
+async function confirmRename() {
   const target = renameTarget.value
   const name = renameValue.value.trim()
   if (!target || !name) return
-  if (store.rename(target.id, name)) renameTarget.value = null
+  if (await store.rename(target.id, name)) renameTarget.value = null
 }
 
 // --- Delete ---
 const deleteTarget = ref<ProjectSummary | null>(null)
 
-function confirmDelete() {
-  if (!deleteTarget.value) return
-  store.remove(deleteTarget.value.id)
+async function confirmDelete() {
+  const target = deleteTarget.value
+  if (!target) return
   deleteTarget.value = null
+  await store.remove(target.id)
+}
+
+// --- Duplicate ---
+function duplicate(id: string) {
+  void store.duplicate(id)
 }
 
 // --- Download / upload ---
 // Both go through the shared utilities, so each one is a browser download here
 // and a native dialog in the desktop app without this view knowing which.
-function download(id: string) {
-  const payload = store.exportProject(id)
+async function download(id: string) {
+  const payload = await store.exportProject(id)
   if (!payload) return
   downloadText(payload.filename, payload.json, 'application/json')
 }
 
 async function upload() {
   const json = await pickProjectFile()
-  if (json !== null) store.importProject(json)
+  if (json !== null) await store.importProject(json)
 }
 
 // --- Share ---
@@ -163,11 +169,11 @@ onMounted(async () => {
   }
 })
 
-function acceptShared() {
+async function acceptShared() {
   const project = sharedProject.value
   if (!project) return
   sharedProject.value = null
-  const added = store.adopt(project)
+  const added = await store.adopt(project)
   if (added) openProject(added.id)
 }
 
@@ -292,7 +298,7 @@ function formatDate(iso: string): string {
             <AppButton label="Rename" @click="startRename(summary)">
               <Pencil class="size-4" />
             </AppButton>
-            <AppButton label="Duplicate" @click="store.duplicate(summary.id)">
+            <AppButton label="Duplicate" @click="duplicate(summary.id)">
               <Copy class="size-4" />
             </AppButton>
             <AppButton label="Share Link" @click="startShare(summary)">

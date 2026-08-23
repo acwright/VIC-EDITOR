@@ -6,6 +6,7 @@ import type { CreateProjectOptions } from '@/domain/factory'
 import { useEditorStore } from '@/stores/editor'
 import { useProjectsStore } from '@/stores/projects'
 import AppDialog from '@/components/base/AppDialog.vue'
+import { openTestProject } from '@/testing/project'
 import ProjectSettingsDialog from '../ProjectSettingsDialog.vue'
 
 /**
@@ -25,8 +26,7 @@ function mountDialog(options: Partial<CreateProjectOptions> = {}) {
   setActivePinia(createPinia())
   const projects = useProjectsStore()
   const editor = useEditorStore()
-  const project = projects.create({ name: 'Test', seed: 'blank', type: 'multicolor', ...options })!
-  projects.open(project.id)
+  openTestProject({ name: 'Test', seed: 'blank', type: 'multicolor', ...options })
   editor.reset()
 
   const wrapper = mount(ProjectSettingsDialog, {

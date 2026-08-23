@@ -7,6 +7,7 @@ import { colorHex } from '@/domain/colors'
 import { EMPTY_CELL } from '@/domain/screenOps'
 import { useEditorStore } from '@/stores/editor'
 import { useProjectsStore } from '@/stores/projects'
+import { openTestProject } from '@/testing/project'
 import CharacterPanel from '../CharacterPanel.vue'
 import CharsetGrid from '../CharsetGrid.vue'
 import PixelEditor from '../PixelEditor.vue'
@@ -56,8 +57,7 @@ function setup(options: Partial<CreateProjectOptions> = {}) {
   setActivePinia(createPinia())
   const projects = useProjectsStore()
   const editor = useEditorStore()
-  const project = projects.create({ name: 'Test', seed: 'blank', type: 'multicolor', ...options })!
-  projects.open(project.id)
+  openTestProject({ name: 'Test', seed: 'blank', type: 'multicolor', ...options })
   editor.reset()
   const solid = () => Array.from({ length: 8 }, () => ALL_BORDER)
   projects.current!.charset[0] = solid()

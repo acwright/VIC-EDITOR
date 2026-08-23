@@ -7,8 +7,10 @@ const api: AppApi = {
   app: {
     getVersion: (): Promise<string> => ipcRenderer.invoke(IPC.APP_GET_VERSION),
     platform: process.platform,
-    onBeforeQuit: (callback: () => void): (() => void) => {
-      const handler = (): void => callback()
+    onBeforeQuit: (callback: () => void | Promise<void>): (() => void) => {
+      // The renderer's flush is async; it signals completion with
+      // `saveComplete()`, so nothing here awaits the promise.
+      const handler = (): void => void callback()
       ipcRenderer.on(IPC.APP_BEFORE_QUIT, handler)
       return () => ipcRenderer.off(IPC.APP_BEFORE_QUIT, handler)
     },

@@ -8,6 +8,7 @@ import { DEFAULT_FG } from '@/domain/palette'
 import { EMPTY_CELL } from '@/domain/screenOps'
 import { useEditorStore } from '@/stores/editor'
 import { useProjectsStore } from '@/stores/projects'
+import { openTestProject } from '@/testing/project'
 import ScreenCanvas from '../ScreenCanvas.vue'
 
 /**
@@ -39,8 +40,7 @@ function setup(options: Partial<CreateProjectOptions> = {}) {
   setActivePinia(createPinia())
   const projects = useProjectsStore()
   const editor = useEditorStore()
-  const project = projects.create({ name: 'Test', seed: 'blank', type: 'hires', ...options })!
-  projects.open(project.id)
+  openTestProject({ name: 'Test', seed: 'blank', type: 'hires', ...options })
   editor.reset()
 
   const wrapper = mount(ScreenCanvas, { props: { scale: 1, showGrid: false } })
@@ -303,9 +303,7 @@ describe('ScreenCanvas aspect correction', () => {
   beforeEach(() => {
     localStorage.clear()
     setActivePinia(createPinia())
-    const projects = useProjectsStore()
-    const project = projects.create({ name: 'Test', seed: 'blank', type: 'hires' })!
-    projects.open(project.id)
+    openTestProject({ name: 'Test', seed: 'blank', type: 'hires' })
     useEditorStore().reset()
   })
 

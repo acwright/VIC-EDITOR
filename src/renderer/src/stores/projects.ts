@@ -2,8 +2,19 @@
  * Projects store — the project list, the currently open project, and
  * debounced autosave with a dirty flag (drives the header save indicator).
  *
- * Mutating actions return null (and set `lastError`) instead of throwing, so
- * views have a single error surface to present.
+ * Storage is reached only through the `ProjectLibrary` port (PLAN.md D1), so
+ * every action here is async. Mutating actions return null/false (and set
+ * `lastError`) instead of rejecting, so views have a single error surface to
+ * present.
+ *
+ * Two things follow from the port being async and are load-bearing:
+ *
+ * - **Saves are serialized.** `saveCurrent` chains onto whatever save is still
+ *   in flight rather than racing it, and `flushAutosave` awaits the chain — so
+ *   the before-quit flush cannot report "done" while a write is outstanding.
+ * - **`open`/`close` carry a token.** Awaiting a load means a second
+ *   navigation can land mid-flight; the stale one drops its result instead of
+ *   overwriting the newer project (or nulling it).
  */
 
 import { ref } from 'vue'
@@ -16,14 +27,15 @@ import {
   serializeProject,
 } from '@/domain/serialization'
 import { encodeShare, shareUrl } from '@/domain/share'
-import { StorageQuotaError, createRepository, type ProjectSummary } from '@/persistence/repository'
+import { StorageQuotaError, type ProjectSummary } from '@/persistence/repository'
+import { createBrowserStore } from '@/persistence/browserStore'
 
 export type SaveState = 'saved' | 'saving' | 'unsaved'
 
 export const AUTOSAVE_DELAY_MS = 500
 
 export const useProjectsStore = defineStore('projects', () => {
-  const repository = createRepository()
+  const library = createBrowserStore()
 
   const summaries = ref<ProjectSummary[]>([])
   const current = ref<Project | null>(null)
@@ -32,15 +44,19 @@ export const useProjectsStore = defineStore('projects', () => {
   const lastError = ref<string | null>(null)
 
   let autosaveTimer: ReturnType<typeof setTimeout> | undefined
+  /** The tail of the save chain; every save queues behind it (see the header). */
+  let saveChain: Promise<boolean> = Promise.resolve(true)
+  /** Bumped by every open/close, so a load that lost the race can tell. */
+  let openToken = 0
 
-  function refresh(): void {
-    summaries.value = repository.list()
+  async function refresh(): Promise<void> {
+    summaries.value = await library.list()
   }
 
   /** Persist a project; on failure record the error and report false. */
-  function persist(project: Project): boolean {
+  async function persist(project: Project): Promise<boolean> {
     try {
-      repository.save(project)
+      await library.save(project)
       lastError.value = null
       return true
     } catch (error) {
@@ -50,71 +66,80 @@ export const useProjectsStore = defineStore('projects', () => {
     }
   }
 
-  function create(options: CreateProjectOptions): Project | null {
+  async function create(options: CreateProjectOptions): Promise<Project | null> {
     const project = createProject(options)
-    if (!persist(project)) return null
-    refresh()
+    if (!(await persist(project))) return null
+    await refresh()
     return project
   }
 
   /** Persist a fully-formed project (e.g. a bundled sample) and list it. */
-  function createFrom(project: Project): Project | null {
-    if (!persist(project)) return null
-    refresh()
+  async function createFrom(project: Project): Promise<Project | null> {
+    if (!(await persist(project))) return null
+    await refresh()
     return project
   }
 
-  function open(id: string): Project | null {
-    flushAutosave()
-    const project = repository.load(id)
+  async function open(id: string): Promise<Project | null> {
+    const token = ++openToken
+    await flushAutosave()
+    const project = await library.load(id)
+    if (token !== openToken) return project // a newer open won; leave its result standing
     current.value = project
     saveState.value = 'saved'
     return project
   }
 
-  function close(): void {
-    flushAutosave()
+  async function close(): Promise<void> {
+    const token = ++openToken
+    await flushAutosave()
+    if (token !== openToken) return
     current.value = null
     saveState.value = 'saved'
   }
 
-  function rename(id: string, name: string): boolean {
-    const project = current.value?.id === id ? current.value : repository.load(id)
-    if (!project) return false
-    project.name = name
-    project.modifiedAt = new Date().toISOString()
-    if (!persist(project)) return false
-    refresh()
+  async function rename(id: string, name: string): Promise<boolean> {
+    const isOpen = current.value?.id === id
+    // The port renames what is *stored*, so anything still in the autosave
+    // window has to land first or it would be renamed and then written back.
+    if (isOpen) await flushAutosave()
+    try {
+      await library.rename(id, name)
+    } catch {
+      lastError.value = 'Renaming the project failed.'
+      return false
+    }
+    if (current.value?.id === id) current.value.name = name
+    await refresh()
     return true
   }
 
-  function duplicate(id: string): Project | null {
-    const source = repository.load(id)
-    if (!source) return null
-    const now = new Date().toISOString()
-    const copy: Project = {
-      ...structuredClone(source),
-      id: crypto.randomUUID(),
-      name: `${source.name} copy`,
-      createdAt: now,
-      modifiedAt: now,
+  /** Copy a project under a fresh id; resolves to the copy's id. */
+  async function duplicate(id: string): Promise<string | null> {
+    if (current.value?.id === id) await flushAutosave()
+    let copyId: string
+    try {
+      copyId = await library.duplicate(id)
+    } catch (error) {
+      lastError.value =
+        error instanceof StorageQuotaError ? error.message : 'Duplicating the project failed.'
+      return null
     }
-    if (!persist(copy)) return null
-    refresh()
-    return copy
+    await refresh()
+    return copyId
   }
 
-  function remove(id: string): void {
-    repository.remove(id)
+  async function remove(id: string): Promise<void> {
+    await library.remove(id)
     if (current.value?.id === id) {
       current.value = null
       saveState.value = 'saved'
     }
-    refresh()
+    await refresh()
   }
 
   /** Import an uploaded project JSON file. Assigns a fresh id on collision. */
-  function importProject(json: string): Project | null {
+  async function importProject(json: string): Promise<Project | null> {
     let project: Project
     try {
       project = deserializeProject(json)
@@ -129,18 +154,23 @@ export const useProjectsStore = defineStore('projects', () => {
   }
 
   /** Take ownership of an already-validated project (upload, share link). */
-  function adopt(project: Project): Project | null {
-    if (repository.load(project.id)) {
+  async function adopt(project: Project): Promise<Project | null> {
+    if (await library.load(project.id)) {
       project.id = crypto.randomUUID()
     }
-    if (!persist(project)) return null
-    refresh()
+    if (!(await persist(project))) return null
+    await refresh()
     return project
+  }
+
+  /** The open project if it is the one asked for, otherwise a fresh load. */
+  async function projectById(id: string): Promise<Project | null> {
+    return current.value?.id === id ? current.value : await library.load(id)
   }
 
   /** Shareable URL carrying the whole project. Null (with lastError) on failure. */
   async function shareLink(id: string): Promise<string | null> {
-    const project = current.value?.id === id ? current.value : repository.load(id)
+    const project = await projectById(id)
     if (!project) {
       lastError.value = 'That project could not be loaded.'
       return null
@@ -154,8 +184,8 @@ export const useProjectsStore = defineStore('projects', () => {
   }
 
   /** Pretty-printed download payload for a project. */
-  function exportProject(id: string): { filename: string; json: string } | null {
-    const project = current.value?.id === id ? current.value : repository.load(id)
+  async function exportProject(id: string): Promise<{ filename: string; json: string } | null> {
+    const project = await projectById(id)
     if (!project) return null
     const slug =
       project.name
@@ -170,26 +200,42 @@ export const useProjectsStore = defineStore('projects', () => {
     if (!current.value) return
     saveState.value = 'unsaved'
     clearTimeout(autosaveTimer)
-    autosaveTimer = setTimeout(saveCurrent, AUTOSAVE_DELAY_MS)
+    autosaveTimer = setTimeout(() => void saveCurrent(), AUTOSAVE_DELAY_MS)
   }
 
   /** Save the open project immediately (Ctrl/Cmd+S, close, tab hide). */
-  function saveCurrent(): boolean {
+  function saveCurrent(): Promise<boolean> {
     clearTimeout(autosaveTimer)
     autosaveTimer = undefined
-    if (!current.value) return true
+    // Queue behind any save still in flight rather than interleaving writes.
+    saveChain = saveChain.then(writeCurrent, writeCurrent)
+    return saveChain
+  }
+
+  async function writeCurrent(): Promise<boolean> {
+    const project = current.value
+    if (!project) return true
     saveState.value = 'saving'
-    current.value.modifiedAt = new Date().toISOString()
-    const ok = persist(current.value)
-    saveState.value = ok ? 'saved' : 'unsaved'
-    if (ok) refresh()
+    project.modifiedAt = new Date().toISOString()
+    const ok = await persist(project)
+    // A save that finished after the project was closed or replaced must not
+    // relabel the indicator for whatever is on screen now.
+    if (current.value === project) saveState.value = ok ? 'saved' : 'unsaved'
+    if (ok) await refresh()
     return ok
   }
 
-  function flushAutosave(): void {
-    if (saveState.value === 'unsaved' || autosaveTimer !== undefined) {
-      saveCurrent()
+  /**
+   * Settle every outstanding write. Called before the window closes, so it
+   * has to cover both a debounced edit that has not fired yet and a save that
+   * fired and has not resolved.
+   */
+  async function flushAutosave(): Promise<void> {
+    if (saveState.value !== 'saved' || autosaveTimer !== undefined) {
+      await saveCurrent()
+      return
     }
+    await saveChain
   }
 
   function dismissError(): void {

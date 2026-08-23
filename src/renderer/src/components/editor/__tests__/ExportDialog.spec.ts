@@ -6,14 +6,14 @@ import { defaultSettings } from '@/domain/factory'
 import { loadPreferences } from '@/persistence/preferences'
 import { useEditorStore } from '@/stores/editor'
 import { useProjectsStore } from '@/stores/projects'
+import { openTestProject } from '@/testing/project'
 
 /** Open a real project and mount the dialog in the given scope. */
 function setup(scope: 'charset' | 'screen') {
   setActivePinia(createPinia())
   const projects = useProjectsStore()
   const editor = useEditorStore()
-  const project = projects.create({ name: 'Astro Ace', type: 'hires' })!
-  projects.open(project.id)
+  openTestProject({ name: 'Astro Ace', type: 'hires' })
   editor.reset()
   const wrapper = mount(ExportDialog, { props: { modelValue: true, scope } })
   return { projects, editor, wrapper }

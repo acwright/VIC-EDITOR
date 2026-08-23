@@ -4,6 +4,7 @@ import { createPinia, setActivePinia } from 'pinia'
 import type { CreateProjectOptions } from '@/domain/factory'
 import { useEditorStore } from '@/stores/editor'
 import { useProjectsStore } from '@/stores/projects'
+import { openTestProject } from '@/testing/project'
 import CharacterPanel from '../CharacterPanel.vue'
 
 /**
@@ -16,8 +17,7 @@ function mountPanel(options: Partial<CreateProjectOptions> = {}) {
   setActivePinia(createPinia())
   const projects = useProjectsStore()
   const editor = useEditorStore()
-  const project = projects.create({ name: 'Test', seed: 'blank', type: 'hires', ...options })!
-  projects.open(project.id)
+  openTestProject({ name: 'Test', seed: 'blank', type: 'hires', ...options })
   editor.reset()
 
   const wrapper = mount(CharacterPanel, { attachTo: document.body })

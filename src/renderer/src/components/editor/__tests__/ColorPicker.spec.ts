@@ -5,6 +5,7 @@ import type { CreateProjectOptions } from '@/domain/factory'
 import { PALETTE } from '@/domain/palette'
 import { useEditorStore } from '@/stores/editor'
 import { useProjectsStore } from '@/stores/projects'
+import { openTestProject } from '@/testing/project'
 import ColorPicker from '../ColorPicker.vue'
 
 /**
@@ -18,8 +19,7 @@ function mountPicker(options: Partial<CreateProjectOptions> = {}) {
   setActivePinia(createPinia())
   const projects = useProjectsStore()
   const editor = useEditorStore()
-  const project = projects.create({ name: 'Test', seed: 'blank', type: 'hires', ...options })!
-  projects.open(project.id)
+  openTestProject({ name: 'Test', seed: 'blank', type: 'hires', ...options })
   editor.reset()
 
   const wrapper = mount(ColorPicker)

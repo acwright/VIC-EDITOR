@@ -23,8 +23,11 @@ let stopBeforeQuit: (() => void) | undefined
 onMounted(() => {
   const api = desktop()
   if (!api) return
-  stopBeforeQuit = api.app.onBeforeQuit(() => {
-    projects.flushAutosave()
+  // The flush is async now that storage is (PLAN.md D1), so `saveComplete`
+  // waits for it — telling main "done" while a write is still outstanding is
+  // exactly the lost edit main's 5-second safety valve cannot save us from.
+  stopBeforeQuit = api.app.onBeforeQuit(async () => {
+    await projects.flushAutosave()
     api.app.saveComplete()
   })
 })

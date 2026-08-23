@@ -7,6 +7,7 @@ import { useProjectsStore } from '@/stores/projects'
 import CharsetPicker from '../CharsetPicker.vue'
 import { loadPreferences } from '@/persistence/preferences'
 import { CHARSET_VIEWS } from '@/utils/charsetView'
+import { openTestProject } from '@/testing/project'
 
 /**
  * jsdom has no 2D context, so the canvas records nothing — what these check is
@@ -30,8 +31,7 @@ function mountPicker(
   setActivePinia(createPinia())
   const projects = useProjectsStore()
   const editor = useEditorStore()
-  const project = projects.create({ name: 'Test', seed: 'blank', type: 'hires', ...options })!
-  projects.open(project.id)
+  openTestProject({ name: 'Test', seed: 'blank', type: 'hires', ...options })
   editor.reset()
 
   const wrapper = mount(CharsetPicker, { global: { stubs: { ExportDialog: true } } })

@@ -21,13 +21,16 @@ persistence design — so this is one plan with a table of the handful of values
 
 ## Current Status
 
-- **Status: Phase F0 is complete, and no production code has changed.** All five spikes in
-  §6 have been run; §6 is now measurements rather than assumptions, and the two things it
-  found that this document had wrong are recorded there (macOS gets no exported UTI, and a
-  watch on the open *file* is single-shot). Both repos are still `v1.6.1` with clean trees:
-  the spikes' temporary `fileAssociations` and instrumentation were reverted on purpose, so
-  that neither app declares a document type it cannot yet open. F4 adds the declaration and
-  the handler together.
+- **Status: Phase F1 is complete.** Storage in both repos is behind the async
+  `ProjectStore` / `ProjectLibrary` port (D1), with `localStorage` still the only
+  implementation; the Pinia store, the two views and the before-quit path are async
+  throughout and both builds behave exactly as they did. Nothing has been written to a file
+  yet and nothing under `src/main/` changed, apart from `onBeforeQuit` accepting an async
+  callback. Phase F0 before it left §6 as measurements rather than assumptions, including
+  the two things this document had wrong (macOS gets no exported UTI, and a watch on the
+  open *file* is single-shot); the spikes' temporary `fileAssociations` were reverted on
+  purpose, so that neither app declares a document type it cannot yet open — F4 adds the
+  declaration and the handler together.
 - **S1 is GO on macOS and Linux and unverified on Windows**, so §3's decision stands and is
   not reopened. Windows is the one platform where the double-click is still taken on trust,
   and it is a real Windows job (§6, §11).
@@ -649,22 +652,57 @@ fact that legacy `.json`-suffixed files never double-click anywhere.
 **Goal:** storage is async and behind an interface, with `localStorage` still the only
 implementation. Both builds behave exactly as they do today.
 
-- [ ] `persistence/store.ts` — `ProjectStore` and `ProjectLibrary` (D1)
-- [ ] `persistence/browserStore.ts` — today's repository behind the port, including `rename`
+- [x] `persistence/store.ts` — `ProjectStore` and `ProjectLibrary` (D1)
+- [x] `persistence/browserStore.ts` — today's repository behind the port, including `rename`
       and `duplicate` moved down from the Pinia store
-- [ ] `stores/projects.ts` — async throughout: `open`, `create`, `createFrom`, `rename`,
+- [x] `stores/projects.ts` — async throughout: `open`, `create`, `createFrom`, `rename`,
       `duplicate`, `remove`, `importProject`, `adopt`, `saveCurrent`, `flushAutosave`
-- [ ] The before-quit path: `onBeforeQuit` must now `await` the flush before calling
+- [x] The before-quit path: `onBeforeQuit` must now `await` the flush before calling
       `saveComplete()`. Main's 5-second safety valve stays as it is
-- [ ] `EditorView` — the `projectId` watcher awaits `open`; add a loading state and a "this
+- [x] `EditorView` — the `projectId` watcher awaits `open`; add a loading state and a "this
       project could not be opened" state that offers the way back
-- [ ] `ProjectManagerView` — awaits `refresh`, `create`, `duplicate`, `remove`
-- [ ] One spec suite written against the *port*, run against `browserStore`, so F3's adapter
+- [x] `ProjectManagerView` — awaits `refresh`, `create`, `duplicate`, `remove`
+- [x] One spec suite written against the *port*, run against `browserStore`, so F3's adapter
       inherits it
 
-**Exit criteria:** the full suite green, both builds green, and in the running desktop app an
-edit made a fraction of a second before ⌘Q is still on disk after a relaunch — the check the
-shell's own phases used, because the flush is what this phase is most likely to break.
+**Exit criteria: met.** Both repos: full suite green (TMS9918 526, VIC-20 620), `oxlint`,
+`eslint`, `vue-tsc --build`, `npm run build` and `npm run build:web` all green, and the
+pre-quit edit verified **in the running desktop app** — a project made through the app's own
+New Project dialog, a character filled 30 ms before the window closes (inside the 500 ms
+autosave debounce), and the fill present in storage after a relaunch.
+
+What F1 settled, for the phases that inherit it:
+
+- **`duplicate` returns an id, not a project.** That is the port's signature (D1), so the
+  Pinia action returns `Promise<string | null>` and the manager view, which never used the
+  copy, is unchanged. F3's document adapter never implements it at all.
+- **The port's own suite is `persistence/__tests__/storeContract.ts`**, called from
+  `browserStore.spec.ts` as `describeProjectLibrary`. F3's `documentStore` calls
+  `describeProjectStore` from the same file — the suite reaches for no repository, no
+  `localStorage` and no path, so that it can.
+- **Saves are serialised and `flushAutosave` awaits the chain.** A save queues behind
+  whatever is still in flight rather than racing it, and `open`/`close` carry a token so a
+  load that lost a navigation race drops its result. Both are what an awaited port needs and
+  neither was necessary when storage was synchronous.
+- **`AppApi.app.onBeforeQuit` now takes `() => void | Promise<void>`.** The preload does not
+  await it; the renderer still signals with `saveComplete()`, and main's 5-second valve is
+  unchanged.
+- **`src/renderer/src/testing/project.ts` is new**, and every editor-store and
+  editor-component spec uses it. Opening is async now, and those specs are about the editor
+  rather than about storage, so they seed `current` directly instead of turning several
+  hundred `it` blocks async. It has to keep leaving behind exactly what `open()` leaves.
+- **A harness worth keeping for F3 and F5.** The running-app check drove the *built* app
+  over the DevTools protocol — `electron out/main/index.js --remote-debugging-port=9222`,
+  plus `--user-data-dir` pointed at a throwaway profile so the probe cannot touch the
+  projects a real install holds. Two things it taught: the first page target listed is not
+  yet the app's document, so wait for `readyState === 'complete'` on the `app://` origin
+  before evaluating, and main's `will-navigate` handler sends an assigned `location.href`
+  to the external browser — drive the router with `pushState` + a `popstate` event instead.
+  The probe was run with a **negative control**: with a 300 ms delay spiked into the
+  adapter's `save`, the awaited flush keeps the edit and an un-awaited one loses it, so the
+  check can tell a working flush from a broken one. Both spikes were reverted and the
+  measurement re-run on the shipped code. The `ELECTRON_RUN_AS_NODE` trap in §6's harness
+  note applies here too.
 
 ### Phase F2 — Git-first serialization
 
