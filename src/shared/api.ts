@@ -16,6 +16,8 @@ import type {
   DocumentChange,
   DocumentResult,
   DocumentWriteResult,
+  MigrationDocument,
+  MigrationResult,
   OpenDocument,
   RecentDocument,
 } from './document'
@@ -163,6 +165,33 @@ export interface AppApi {
      * display. `null` if the user cancelled.
      */
     chooseLocation(): Promise<string | null>
+  }
+  /**
+   * The one-time move out of browser storage (PLAN.md D19). **Absent in the
+   * browser build**, which is not going anywhere (D20).
+   *
+   * The two processes each know half of it: main holds the marker and writes
+   * the files, and only the renderer can read the `localStorage` the projects
+   * are in. So the renderer reads and serializes, and hands the text over —
+   * still without naming a file (D8).
+   */
+  migration: {
+    /**
+     * Whether the migration has yet to happen. True until a run has written
+     * something; the renderer still has to check whether there is anything to
+     * copy, which is the half main cannot see.
+     */
+    pending(): Promise<boolean>
+    /** Where the copies would go, as it should read on screen (~ collapsed). */
+    folder(): Promise<string>
+    /** Run a folder dialog and remember the answer; `null` if cancelled. */
+    choose(): Promise<string | null>
+    /**
+     * Write these projects, seed Recent Documents with them, and set the
+     * marker. Nothing here touches the originals — removing those is the
+     * renderer's to offer afterwards, and never automatic (D19).
+     */
+    run(documents: MigrationDocument[]): Promise<MigrationResult>
   }
   menu: {
     /**

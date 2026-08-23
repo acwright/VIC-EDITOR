@@ -346,6 +346,33 @@ function formatDate(iso: string): string {
       </div>
     </section>
 
+    <!-- Where the projects above actually are (PLAN.md D20).
+         The web build's storage is unchanged this round; what it gains is
+         saying so, because "clearing browsing data deletes them" is the one
+         thing a person has to know and the one thing nothing here said. -->
+    <section
+      class="mt-8 rounded-md border border-ink-800 bg-ink-900 p-3 text-xs text-ink-500"
+      aria-label="Where projects are stored"
+    >
+      <p>
+        <strong class="text-ink-300">Projects are stored in this browser.</strong> They live in this
+        site's local storage on this device — not on a server, and not in your other browsers.
+        Clearing browsing data for this site deletes them, so download anything you want to keep.
+      </p>
+      <p class="mt-1">
+        The
+        <a
+          href="https://github.com/acwright/VIC-EDITOR/releases"
+          target="_blank"
+          rel="noopener"
+          class="underline transition-colors hover:text-ink-200"
+          >desktop app</a
+        >
+        keeps each project as a file instead, so it can sit in a repository beside your source and
+        go through version control with it.
+      </p>
+    </section>
+
     <footer
       class="mt-8 flex items-center justify-between border-t border-ink-800 pt-4 text-xs text-ink-500"
     >

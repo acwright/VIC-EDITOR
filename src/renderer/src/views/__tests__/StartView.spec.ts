@@ -2,18 +2,22 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
 import { flushPromises, mount } from '@vue/test-utils'
 import StartView from '../StartView.vue'
+import MigrationDialog from '@/components/projects/MigrationDialog.vue'
 import NewProjectDialog from '@/components/projects/NewProjectDialog.vue'
 import { createProject } from '@/domain/factory'
 import { serializeProject } from '@/domain/serialization'
 import { SAMPLES } from '@/samples'
 import { useProjectsStore } from '@/stores/projects'
+import { createRepository } from '@/persistence/repository'
 import { fakeDocumentBridge, type FakeDocumentBridge } from '@/testing/documentBridge'
+import { fakeMigrationBridge, type FakeMigrationBridge } from '@/testing/migrationBridge'
 import type { AppApi } from '@shared/api'
 
 const push = vi.fn<(to: string) => void>()
 vi.mock('vue-router', () => ({ useRouter: () => ({ push: (to: string) => push(to) }) }))
 
 let main: FakeDocumentBridge
+let migration: FakeMigrationBridge
 
 function mountView() {
   const errors: unknown[] = []
@@ -26,8 +30,11 @@ function mountView() {
 beforeEach(() => {
   push.mockClear()
   main = fakeDocumentBridge()
+  migration = fakeMigrationBridge()
+  localStorage.clear()
   vi.stubGlobal('api', {
     document: main.api,
+    migration: migration.api,
     // The view reports what it offers as it mounts, and subscribes to the
     // native menu; neither is what this spec is about, but both have to be there.
     menu: { setContext: vi.fn<() => void>(), onAction: () => () => {} },
@@ -147,6 +154,50 @@ describe('StartView', () => {
     const { wrapper } = mountView()
     await flushPromises()
     expect(wrapper.find('[aria-label="Recent documents"]').exists()).toBe(false)
+  })
+
+  // D19: the first `v2.0` launch of a `v1.6` profile. It lands here because a
+  // profile that never had documents has none to reopen.
+  it('offers to copy what is in browser storage, and never moves it', async () => {
+    const repository = createRepository()
+    const project = createProject({ name: 'Star Voyager', type: 'hires' })
+    repository.save(project)
+
+    const { wrapper } = mountView()
+    await flushPromises()
+
+    const sheet = wrapper.getComponent(MigrationDialog)
+    expect(sheet.props('plan')!.documents.map((document) => document.name)).toEqual([
+      'Star Voyager',
+    ])
+    expect(sheet.props('folder')).toBe('~/Documents/VIC-20 Editor')
+
+    sheet.vm.$emit('copy')
+    await flushPromises()
+
+    expect(migration.files.get('Star Voyager.vic20')).toContain('Star Voyager')
+    // The original is still in browser storage until it is asked for (D19).
+    expect(repository.load(project.id)).not.toBeNull()
+
+    sheet.vm.$emit('removeCopies')
+    await flushPromises()
+    expect(repository.load(project.id)).toBeNull()
+    expect(sheet.props('removed')).toBe(true)
+  })
+
+  it('does not offer a migration when there is nothing in browser storage', async () => {
+    const { wrapper } = mountView()
+    await flushPromises()
+    expect(wrapper.getComponent(MigrationDialog).props('plan')).toBeNull()
+  })
+
+  it('does not offer one twice', async () => {
+    createRepository().save(createProject({ name: 'Star Voyager', type: 'hires' }))
+    migration.markDone()
+
+    const { wrapper } = mountView()
+    await flushPromises()
+    expect(wrapper.getComponent(MigrationDialog).props('plan')).toBeNull()
   })
 
   it('shows why something failed, in a banner it can dismiss', async () => {

@@ -6,6 +6,7 @@ import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import { IPC } from '../shared/ipc'
 import { EMPTY_MENU_CONTEXT, type MenuContext } from '../shared/menu'
 import { registerDialogHandlers } from './dialogs'
+import { registerMigrationHandlers } from './migration'
 import { checkOpenDocument, registerDocumentHandlers, restoreLastDocument } from './document'
 import { buildMenu, setMenuContext } from './menu'
 import {
@@ -285,6 +286,7 @@ app.whenReady().then(() => {
   ipcMain.on(IPC.MENU_SET_CONTEXT, (_event, context: MenuContext) => setMenuContext(context))
   registerDialogHandlers()
   registerDocumentHandlers()
+  registerMigrationHandlers()
 
   // Opening a document changes what Open Recent holds, and the menu is built
   // from that list rather than from a copy of it.

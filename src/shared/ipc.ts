@@ -89,6 +89,23 @@ export const IPC = {
   DOCUMENT_DEFAULT_LOCATION: 'document:default-location',
   /** Renderer → main: run a folder dialog and remember what came back. */
   DOCUMENT_CHOOSE_LOCATION: 'document:choose-location',
+  /**
+   * Renderer → main: is the one-time migration out of browser storage still
+   * outstanding? (D19) Main holds the marker; only the renderer can see
+   * whether there is anything left in `localStorage` to copy, so the question
+   * takes both sides to answer.
+   */
+  MIGRATION_PENDING: 'migration:pending',
+  /** Renderer → main, replies with the folder the copies would go to, for display. */
+  MIGRATION_FOLDER: 'migration:folder',
+  /** Renderer → main: run a folder dialog and remember what came back. */
+  MIGRATION_CHOOSE: 'migration:choose',
+  /**
+   * Renderer → main: write these projects into that folder, seed Recent
+   * Documents with them and set the marker (D19). The originals are the
+   * renderer's to keep — nothing here removes them.
+   */
+  MIGRATION_RUN: 'migration:run',
 } as const
 
 export type IpcChannel = (typeof IPC)[keyof typeof IPC]

@@ -111,3 +111,63 @@ export type DocumentChange = 'modified' | 'deleted'
  */
 export type DocumentWriteResult =
   DocumentResult<DocumentStamp> | { status: 'conflict'; change: DocumentChange }
+
+/**
+ * Where a `v1.6` user's projects are copied to on the first `v2.0` launch
+ * (PLAN.md D19, §9). A folder of the app's own inside `~/Documents`, created if
+ * it is missing — the projects being copied have no folder of their own, since
+ * until now they had no files.
+ */
+export const MIGRATION_FOLDER_NAME = 'VIC-20 Editor'
+
+/**
+ * One project on its way out of browser storage (D19).
+ *
+ * The renderer reads and serializes; main writes. `id` is the project's own —
+ * the same opaque string the route already carries — and comes back in the
+ * result so the renderer knows exactly which browser copies were written and
+ * which were not. No path crosses in either direction (D8).
+ */
+export interface MigrationDocument {
+  id: string
+  /** The project's name. Main derives the filename, as it does for New (D10). */
+  name: string
+  /** The serialized project (D4). */
+  text: string
+}
+
+/** A project that was written, and the file it landed in. */
+export interface MigrationWritten {
+  id: string
+  /** The filename as written, suffix included — what the sheet lists. */
+  file: string
+}
+
+/** A project that could not be written, and why. */
+export interface MigrationFailure {
+  id: string
+  name: string
+  reason: string
+}
+
+/**
+ * What a migration did (D19).
+ *
+ * Deliberately not a boolean: the sheet afterwards names every file that was
+ * written and every project that was not, because the originals are still in
+ * browser storage and the user is about to be asked whether to remove them.
+ */
+export interface MigrationResult {
+  /** The folder as it reads on screen, home collapsed to `~`. */
+  folder: string
+  written: MigrationWritten[]
+  failed: MigrationFailure[]
+  /**
+   * Whether the marker was set, so this happens once.
+   *
+   * False when *nothing* could be written — an unwritable folder, a volume
+   * that is not there — because that is a migration that has not happened yet
+   * and should be offered again, not a migration that is over.
+   */
+  done: boolean
+}

@@ -18,8 +18,10 @@ import { useRouter } from 'vue-router'
 import { Clock, FileText, FolderOpen, Github, Keyboard, Plus, X } from 'lucide-vue-next'
 import AppButton from '@/components/base/AppButton.vue'
 import HelpDialog from '@/components/HelpDialog.vue'
+import MigrationDialog from '@/components/projects/MigrationDialog.vue'
 import NewProjectDialog from '@/components/projects/NewProjectDialog.vue'
 import type { CreateProjectOptions } from '@/domain/factory'
+import { migrator, type MigrationOutcome, type MigrationPlan } from '@/persistence/migration'
 import { SAMPLES, type Sample } from '@/samples'
 import { useProjectsStore } from '@/stores/projects'
 import type { RecentDocument } from '@shared/document'
@@ -52,6 +54,75 @@ const recent = ref<RecentDocument[]>([])
 onMounted(async () => {
   recent.value = await store.recentDocuments()
 })
+
+// --- The one-time move out of browser storage (D19) ---
+
+/**
+ * The migration lives here rather than in `App.vue` for the reason it can:
+ * a `v1.6` desktop profile has no *document* to reopen, so the first `v2.0`
+ * launch always lands on this screen — and this is the screen whose recents
+ * list the copies are about to appear in.
+ */
+const migration = migrator()
+const migrationPlan = ref<MigrationPlan | null>(null)
+const migrationFolder = ref('')
+const migrationOutcome = ref<MigrationOutcome | null>(null)
+const migrationRemoved = ref(false)
+const migrating = ref(false)
+const showMigration = ref(false)
+
+onMounted(async () => {
+  if (!migration) return
+  const plan = await migration.pending()
+  if (!plan) return
+  migrationPlan.value = plan
+  migrationFolder.value = await migration.folder()
+  showMigration.value = true
+})
+
+async function chooseMigrationFolder() {
+  const chosen = await migration?.choose()
+  if (chosen) migrationFolder.value = chosen
+}
+
+/**
+ * Copy them (D19).
+ *
+ * Recents are re-read afterwards because main has just seeded them with the
+ * copies — which is what makes the projects reachable the moment the sheet is
+ * closed, and is why D19 asks for it: there is no list view to find them in.
+ */
+async function copyProjects() {
+  const plan = migrationPlan.value
+  if (!migration || !plan) return
+  migrating.value = true
+  try {
+    migrationOutcome.value = await migration.run(plan)
+  } catch {
+    // Nothing was written, so nothing is marked and nothing was removed: the
+    // offer comes back next launch, and the banner says why it stopped.
+    showMigration.value = false
+    store.lastError = 'Copying your projects failed. They are still in browser storage.'
+    return
+  } finally {
+    migrating.value = false
+  }
+  recent.value = await store.recentDocuments()
+}
+
+/** Never automatic, and only ever the copies that were actually written (D19). */
+async function removeBrowserCopies() {
+  const outcome = migrationOutcome.value
+  if (!migration || !outcome) return
+  try {
+    await migration.removeBrowserCopies(outcome)
+  } catch {
+    showMigration.value = false
+    store.lastError = 'Removing the browser-stored copies failed. The files are safe.'
+    return
+  }
+  migrationRemoved.value = true
+}
 
 /** The same keys the manager has: this is the view they belong to here. */
 const ACTIONS: Record<ManagerAction, () => void> = {
@@ -253,6 +324,20 @@ function openRecent(entry: RecentDocument) {
     <!-- The location row exists because this parent passes one. The dialog is
          shared with the browser's manager, which passes none and shows none —
          the fork stays at the route, not inside the component (D13). -->
+    <!-- Shown once, before anything else on this screen is worth doing: the
+         projects it is about to copy are the only ones this profile has (D19). -->
+    <MigrationDialog
+      v-model="showMigration"
+      :plan="migrationPlan"
+      :folder="migrationFolder"
+      :outcome="migrationOutcome"
+      :busy="migrating"
+      :removed="migrationRemoved"
+      @copy="copyProjects"
+      @choose-folder="chooseMigrationFolder"
+      @remove-copies="removeBrowserCopies"
+    />
+
     <NewProjectDialog
       v-model="showNewProject"
       v-model:location="location"

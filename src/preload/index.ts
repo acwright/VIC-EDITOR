@@ -6,6 +6,8 @@ import type {
   DocumentChange,
   DocumentResult,
   DocumentWriteResult,
+  MigrationDocument,
+  MigrationResult,
   OpenDocument,
   RecentDocument,
 } from '../shared/document'
@@ -68,6 +70,16 @@ const api: AppApi = {
     reveal: (): Promise<void> => ipcRenderer.invoke(IPC.DOCUMENT_REVEAL),
     defaultLocation: (): Promise<string> => ipcRenderer.invoke(IPC.DOCUMENT_DEFAULT_LOCATION),
     chooseLocation: (): Promise<string | null> => ipcRenderer.invoke(IPC.DOCUMENT_CHOOSE_LOCATION),
+  },
+  // The half of the migration that main owns: the marker, the folder and the
+  // writes. The projects themselves come from the renderer, which is the only
+  // side that can read them (D19).
+  migration: {
+    pending: (): Promise<boolean> => ipcRenderer.invoke(IPC.MIGRATION_PENDING),
+    folder: (): Promise<string> => ipcRenderer.invoke(IPC.MIGRATION_FOLDER),
+    choose: (): Promise<string | null> => ipcRenderer.invoke(IPC.MIGRATION_CHOOSE),
+    run: (documents: MigrationDocument[]): Promise<MigrationResult> =>
+      ipcRenderer.invoke(IPC.MIGRATION_RUN, documents),
   },
   menu: {
     setContext: (context: MenuContext): void => {

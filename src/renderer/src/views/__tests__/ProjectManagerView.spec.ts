@@ -71,6 +71,15 @@ describe('ProjectManagerView', () => {
     })
   })
 
+  // D20: the web build's storage does not change this round; what it gains is
+  // honesty about where projects are and what deletes them.
+  it('says where projects live, and points at the desktop app', () => {
+    const note = mountView().wrapper.get('[aria-label="Where projects are stored"]')
+    expect(note.text()).toContain('stored in this browser')
+    expect(note.text()).toContain('Clearing browsing data')
+    expect(note.get('a').attributes('href')).toContain('releases')
+  })
+
   it('renders one card per bundled sample', () => {
     const grid = mountView().wrapper.get('[aria-label="Sample projects"]')
     expect(grid.findAll('button')).toHaveLength(SAMPLES.length)

@@ -21,17 +21,26 @@ persistence design — so this is one plan with a table of the handful of values
 
 ## Current Status
 
-- **Status: Phase F5 is complete.** The editor lives in a git worktree without
-  fighting it. A `git checkout` under a clean document reloads it in place and
-  says so quietly; one under an unsaved edit asks, naming both versions, and
-  writes nothing until it is answered. Every write states the stamp it expects
-  and main refuses the ones whose file has moved (D6) — measured against a real
+- **Status: Phase F6 is complete.** A `v1.6` desktop user's projects are no
+  longer trapped in browser storage. The first `v2.0` launch says what is about
+  to happen, copies each project into the app's own folder in `~/Documents`
+  (§9) — a name already taken gets a number, a project that cannot be read is
+  named and skipped — seeds Recent Documents so they are reachable with no list
+  view to find them in, and sets a marker so it happens once. **Nothing is moved:** the
+  originals stay until *Remove Browser Copies* is pressed, and only the copies
+  that were actually written are ever removed. The web build gains the honesty
+  half of D20: the manager now says where projects live, what clearing browsing
+  data does, and where the desktop app is. Not yet done here: the desktop
+  wording and the File menu (F7), and the docs and release (F8).
+- Phase F5 before it made the editor live in a git worktree without fighting
+  it. A `git checkout` under a clean document reloads it in place and says so
+  quietly; one under an unsaved edit asks, naming both versions, and writes
+  nothing until it is answered. Every write states the stamp it expects and main
+  refuses the ones whose file has moved (D6) — measured against a real
   repository, with the autosave firing 500 ms into a branch switch and the
   checkout still whole afterwards. A file deleted behind the app's back is
   reported rather than silently recreated. Detection is S3's: a non-recursive
-  watch on the document's *directory*, plus a `stat` on focus. Not yet done
-  here: the migration (F6) — a `v1.6` desktop user's projects are still only in
-  browser storage until then — and the desktop wording and File menu (F7).
+  watch on the document's *directory*, plus a `stat` on focus.
 - Phase F4 before it made the operating system open the editor. A
   `.tms9918` file carries its own icon, its own named type, and a double-click
   launches straight into it — cold, or into the app already running. Every way a
@@ -607,6 +616,7 @@ src/
 │   ├── documentWatch.ts    new   the directory watch that sees a `git checkout` (D7, S3)
 │   ├── openRequests.ts     new   open-file, argv, second-instance, drop → one message (D15)
 │   ├── recent.ts           new   recent documents in userData (D16)
+│   ├── migration.ts        new   write the copies, seed recents, hold the marker (D19)
 │   ├── windowState.ts            + the last document's path (D11)
 │   ├── menu.ts                   File menu: New…, Open…, Open Recent ▸, Close Document
 │   ├── dialogs.ts                unchanged — exports still go through it
@@ -621,6 +631,7 @@ src/
     │   ├── store.ts        new   ProjectStore + ProjectLibrary (D1)
     │   ├── browserStore.ts new   today's repository behind the port
     │   ├── documentStore.ts new  the port over window.api.document
+    │   ├── migration.ts    new   read localStorage, hand it to main, once (D19)
     │   ├── repository.ts         stays as the localStorage mechanics browserStore uses
     │   └── preferences.ts        unchanged — preferences stay in localStorage in both shells
     ├── domain/
@@ -628,7 +639,8 @@ src/
     │   └── share.ts              share links rooted at the web app (D21)
     ├── stores/projects.ts        async throughout; open/save/rename return promises
     ├── components/projects/
-    │   └── DocumentConflictDialog.vue  new  the two answers to a changed file (D7)
+    │   ├── DocumentConflictDialog.vue  new  the two answers to a changed file (D7)
+    │   └── MigrationDialog.vue  new  what is about to happen, then what did (D19)
     ├── views/
     │   ├── StartView.vue   new   the desktop launcher (D12)
     │   ├── ProjectManagerView.vue  untouched — the web build's home
@@ -1120,21 +1132,58 @@ What F5 settled, for the phases that inherit it:
 
 **Goal:** nobody loses anything, and everybody knows where their projects are.
 
-- [ ] First `v2.0.0` desktop launch with projects in `localStorage`: a sheet explaining what
+- [x] First `v2.0.0` desktop launch with projects in `localStorage`: a sheet explaining what
       is about to happen, then one file per project in the chosen folder, then recents seeded
       with them, then a marker so it happens once (D19)
-- [ ] Name collisions get suffixes; a project that fails validation is reported by name and
+- [x] Name collisions get suffixes; a project that fails validation is reported by name and
       skipped, not silently dropped
-- [ ] The originals stay. A "Remove browser-stored copies" action, offered after a successful
+- [x] The originals stay. A "Remove browser-stored copies" action, offered after a successful
       migration and never automatic
-- [ ] Migration specs against a seeded storage stub, including the corrupt-entry case
-- [ ] Web build: the manager says where projects live and what clearing browsing data does,
+- [x] Migration specs against a seeded storage stub, including the corrupt-entry case
+- [x] Web build: the manager says where projects live and what clearing browsing data does,
       and points at the desktop app for people who want files (D20)
 
-**Exit criteria:** a `v1.6.1` desktop profile with several projects — including one corrupt
-entry — upgrades to `v2.0.0` with every valid project written as a file and reachable from
-recents, the corrupt one named, and `localStorage` untouched. Downgrading to `v1.6.1` still
-shows the old list.
+**Exit criteria: met.** Driven in the packaged renderer over `app://`, against a seeded
+`v1.6` profile of four index entries — two projects sharing a name, and one corrupt. The
+sheet named the corrupt one before copying and again afterwards; three files were written,
+the duplicate name as `Star Voyager 2.tms9918`; recents came back newest-first and one of
+them opened into the editor; the marker was set once and a relaunch did not ask again;
+`localStorage` still held all four entries until *Remove Browser Copies* was pressed, which
+removed the three that were written and left the corrupt one. Copying a second time into the
+same folder produced ` 3` and ` 4` rather than touching a file.
+
+**What it split, and where the line is.** `localStorage` belongs to the renderer's origin and
+files belong to main, so the migration is the one operation in this round that needs both
+halves: `persistence/migration.ts` reads, validates and serializes; `src/main/migration.ts`
+writes, seeds recents and holds the marker. It sits beside the two adapters rather than inside
+either, because it touches *both* stores at once — which is exactly what the Pinia store's
+single adapter cannot express, and why D1's one storage call site is left alone.
+
+**Things worth keeping:**
+
+- **The marker is main's, in `userData` — not a `localStorage` key.** A marker stored beside
+  the projects it describes would be cleared by the same "clear browsing data" that clears
+  them, and the app would then offer to migrate projects that are no longer there.
+- **What crosses the bridge has to be plain objects.** The plan is held in a `ref` by the view
+  that shows it, so `plan.documents` is a reactive Proxy — and `ipcRenderer.invoke`
+  structured-clones its arguments, which fails on one with *"An object could not be cloned"*.
+  `run` rebuilds the array. Nothing below the bridge can see this: a fake never clones, so the
+  unit specs were green while the app did nothing at all. It is the phase's own instance of
+  the standard in `CLAUDE.md`.
+- **Only what was *written* is ever removed.** The corrupt entry was never copied, so removing
+  it would destroy the one project this phase has no other copy of. The result carries the
+  project's own id per file for exactly this.
+- **"Not Now" does not set the marker**, so the offer returns next launch. Deliberate: the
+  desktop has no list view to run it from later, so a decline that is permanent would be a
+  decline that strands the projects.
+- **A run that wrote *nothing* has not happened.** The marker follows the writes, not the
+  request — an unwritable folder is offered again rather than marked done.
+- **`dir="rtl"` is wrong for a path written for a person.** The New dialog's location row uses
+  it to keep the end of a long absolute path visible; on `~/Documents/<app folder>` it renders
+  as `Documents/<app folder>/~`. The sheet truncates left-to-right instead.
+- **A hidden window defers `showModal`.** The sheet did not open on the first launch driven
+  before the window was shown — the same family as F5's note that a hidden window does not
+  fire `<dialog>`'s `close`. Activate the app before concluding a dialog is broken.
 
 ### Phase F7 — The desktop file affordances
 

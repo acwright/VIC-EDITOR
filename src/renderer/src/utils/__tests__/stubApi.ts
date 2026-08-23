@@ -28,6 +28,14 @@ export const stubDocumentApi: AppApi['document'] = {
   chooseLocation: () => Promise.resolve(null),
 }
 
+/** The migration surface, answering "there is nothing to migrate" (D19). */
+export const stubMigrationApi: AppApi['migration'] = {
+  pending: () => Promise.resolve(false),
+  folder: () => Promise.resolve('/documents'),
+  choose: () => Promise.resolve(null),
+  run: () => Promise.resolve({ folder: '/documents', written: [], failed: [], done: false }),
+}
+
 /** The whole bridge, inert. Spread it and replace what the spec is about. */
 export function stubApi(overrides: Partial<AppApi> = {}): AppApi {
   return {
@@ -42,6 +50,7 @@ export function stubApi(overrides: Partial<AppApi> = {}): AppApi {
       openText: () => Promise.resolve(null),
     },
     document: stubDocumentApi,
+    migration: stubMigrationApi,
     menu: {
       setContext: vi.fn<() => void>(),
       onAction: () => () => {},

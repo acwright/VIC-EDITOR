@@ -345,6 +345,18 @@ async function chooseLocation(parent: BrowserWindow | null): Promise<string | nu
   return path
 }
 
+/**
+ * Point new documents at `directory` (D10).
+ *
+ * The migration is the one thing outside this module that moves it: once a
+ * `v1.6` user's projects have been copied into a folder, that folder is where
+ * their projects are, and the next *New…* belongs beside them rather than in
+ * `~/Documents` (F6, D19).
+ */
+export function useDocumentDirectory(directory: string): void {
+  newDocumentDirectory = directory
+}
+
 /** The open document's path, for the parts of main that need it (F4, F5). */
 export function openDocumentPath(): string | null {
   return openPath
