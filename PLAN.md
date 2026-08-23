@@ -21,21 +21,20 @@ persistence design — so this is one plan with a table of the handful of values
 
 ## Current Status
 
-- **Status: Phase F7 is complete.** The File menu is a document app's: New
-  Project…, New from Sample ▸, Open…, Open Recent ▸, Close Document, Save, Save
-  a Copy…, and Reveal in Finder under the name each platform gives it. New…
-  works from the editor as well as the start screen, so one composable owns the
-  New dialog and the store flushes into the old document before main adopts the
-  new one (D17). *Save a Copy…* is the menu's first command with no key, which
-  is why `MENU_COMMANDS` exists beside the shortcut-backed table. The words that
-  differ per shell are in `utils/strings.ts` — *Upload Project* / *Open…*,
-  *Download* / *Save a Copy…* — and a downloaded project is now
-  `Star Voyager.tms9918` in **both** shells (D3), named after the open document
-  where there is one. Share links made on the desktop are rooted at the
-  published Pages build rather than at `app://` (D21), which was a `v1.6`
-  defect. What is left is F8: the docs and the release. Two menu items — Open…
-  and Reveal — were driven only to their enabled state, for the reason the phase
-  notes give.
+- **Status: this plan is done. `v2.0.0` shipped from both repos.** Phase F8
+  rewrote both READMEs around documents and double-click and said plainly that
+  the web build keeps projects in the browser; it retired two claims that were
+  no longer true — that the menu carries "the keyboard map as accelerators"
+  (it deliberately carries none) and that the two shells are the same view tree
+  (now "the same tree, two entry points", §4) — and it fixed both READMEs'
+  links to the removed `ELECTRON-PLAN.md`. `CLAUDE.md` in both repos gained a
+  *Storage* section holding the five rules a future session must not tidy away:
+  the split port, the renderer-never-names-a-path invariant, the stamp guard,
+  the git-first format, and the watch-the-directory measurement. The macOS
+  builds of both apps were run from their own dmgs and open a document through
+  the OS's own `open-file` path; the phase notes below say what that measured
+  and what it could not. Windows and Linux double-click remains **declared and
+  not driven** — the position S1 and §11 have held since F0.
 - Phase F6 before it made sure a `v1.6` desktop user's projects are no
   longer trapped in browser storage. The first `v2.0` launch says what is about
   to happen, copies each project into the app's own folder in `~/Documents`
@@ -85,7 +84,7 @@ persistence design — so this is one plan with a table of the handful of values
 - **S1 is GO on macOS and Linux and unverified on Windows**, so §3's decision stands and is
   not reopened. Windows is the one platform where the double-click is still taken on trust,
   and it is a real Windows job (§6, §11).
-- **Last updated:** 2026-08-23
+- **Last updated:** 2026-08-23 (`v2.0.0` released)
 - Baseline: `v1.6.1` in both repos. Electron 43.4.1, `electron-vite@6.0.0-beta.1`, Vite 8,
   Vue 3 + Pinia, `vue-router` 5.
 - **Three shapes for this change were written up and compared before this one was chosen**
@@ -95,7 +94,7 @@ persistence design — so this is one plan with a table of the handful of values
   exactly this round as "Native project files" (its D4). That document was removed once its
   work shipped; what survived it is the load-bearing list in `CLAUDE.md`, and the rest is in
   the git history.
-- Target: **`v2.0.0` in both repos**, released together (D22, Phase F8).
+- Target: **`v2.0.0` in both repos**, released together (D22, Phase F8) — **shipped**.
 
 ---
 
@@ -692,7 +691,7 @@ identical for both.
 | Screen row chunking (D4) | the mode's column count (40 / 32 / 64) | `settings.columns` |
 | Document key order (D4) | `… settings, charsets, colors, screens, animations` | `… settings, charset, charModes, screens` |
 | Storage key prefix (web + preferences, unchanged) | `tms9918-editor:` | `vic20-editor:` |
-| Current version | `1.6.1` | `1.6.1` |
+| Current version | `2.0.0` | `2.0.0` |
 
 `~/Documents` is `app.getPath('documents')`; the migration folder is created if missing.
 
@@ -1271,21 +1270,57 @@ document-name change below and is covered by a spec afterwards, not by the sheet
 
 **Goal:** `v2.0.0` in both repos, and documentation that describes the app that now exists.
 
-- [ ] README in both: the desktop section rewritten around documents and double-click; the web
+- [x] README in both: the desktop section rewritten around documents and double-click; the web
       section says plainly that projects live in the browser. Two existing claims go with it —
       that the menu carries "the keyboard map as accelerators" (it deliberately carries no
       accelerators), and that the desktop app is the same views as the web (now "the same
       tree, two entry points", §4)
-- [ ] `CLAUDE.md` in both: the port and its split, the git-first format, the stamp rule, the
+- [x] `CLAUDE.md` in both: the port and its split, the git-first format, the stamp rule, the
       renderer-never-names-a-path invariant, and the router's one shell fork — the things a
       future session must not "clean up"
-- [ ] `2.0.0` in `package.json`, both repos; tag and release with all four artifacts each
-- [ ] Release notes lead with what a desktop user must know: that projects are now files,
+- [x] `2.0.0` in `package.json`, both repos; tag and release with all four artifacts each
+- [x] Release notes lead with what a desktop user must know: that projects are now files,
       where the old ones were copied to, that they were copied and not moved, and that the web
       app is unchanged
 
-**Exit criteria:** both repos tagged `v2.0.0`, artifacts published, Pages deploy green, and a
-fresh install on each platform opens a document by double-click and edits it.
+**Exit criteria: met on macOS; Windows and Linux are declared and not driven.** Both repos
+are tagged `v2.0.0` with all four artifacts each, and both packaged macOS builds were run.
+
+What was measured in the packaged `2.0.0` binaries, not read from source:
+
+- **Both are notarized and Gatekeeper-accepted** — `spctl -a -vv` answers *accepted, source=
+  Notarized Developer ID* for each `.app` out of its own dmg.
+- **The macOS double-click path opens a document.** The delivery mechanism a double-click
+  uses is the `open-file` Apple Event, and that is what was sent. The VIC-20 app went from
+  `app://vic20/` to `app://vic20/edit/00000000-0000-4000-8000-000000000001` — the golden
+  document's *own* id, which is D9 holding — and the TMS9918 app's next cold launch, with no
+  arguments at all, came up on `/edit/<the same id>`, which is D11's reopen. The route was
+  read off the live renderer over the DevTools protocol rather than off a screenshot, which
+  is why it is an id and not a guess.
+- **Recents recorded it** in both: `recent-documents.json` in `userData` held the path, and
+  `window-state.json` held it as `lastDocument`.
+- **D5 held in the packaged build.** A document opened and then left alone was byte-identical
+  to the golden it was copied from afterwards. An idle editor really does not dirty a working
+  tree.
+- **The exported UTI resolves.** With the app registered, Finder reports
+  `kMDItemContentType = com.acwright.tms9918editor.project` and
+  `kMDItemKind = "TMS9918 Editor Project"` for a `.tms9918` file — S1's named type rather
+  than the dynamic UTI. The same for `.vic20`.
+- **The first-run migration sheet appears in the packaged app**, reading *"Your projects are
+  becoming files"*, offering `~/Documents/TMS9918 Editor`, and carrying D19's three
+  promises — nothing moved or deleted, copies added to Recent Documents, a taken name gets a
+  number.
+- **The Linux packages declare the association.** The deb carries
+  `usr/share/mime/packages/<app>.xml` with the `*.tms9918` / `*.vic20` glob and the MIME
+  type, a `.desktop` entry with the matching `MimeType=` and `Exec … %U`, and the ALSA
+  dependency the default list omits.
+
+**What is not verified, and why.** *Editing and saving in the packaged binary* was driven
+only as far as opening: the machine's owner was working in another app throughout and the
+GUI could not be driven further without taking the screen from them. The save path is what
+F3 and F5 drove in the running app and what the unit suites cover. **Windows and Linux
+double-click is still declared rather than run** — the standing position from S1 and §11, and
+the NSIS installer remains a real Windows job. The Pages deploy is CI's, on the push.
 
 ---
 

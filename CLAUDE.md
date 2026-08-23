@@ -1,6 +1,6 @@
 # Working in this repository
 
-## One renderer, two shells
+## One renderer, two entry points
 
 This repo builds two products from one source tree:
 
@@ -23,12 +23,53 @@ src/shared/     the types and channel names main and renderer agree on
 The rule that keeps this working: **the renderer never imports from `src/main/`**, and
 reaches the desktop only through `window.api`, which is simply absent in the browser. The
 forks live in `src/renderer/src/utils/` — `desktop.ts`, `download.ts`, `upload.ts`,
-`platform.ts` — and each one falls back to browser behaviour. A new platform difference
-belongs in one of those files, not in an `if (electron)` inside a component.
+`platform.ts`, `strings.ts` — and each one falls back to browser behaviour. A new platform
+difference belongs in one of those files, not in an `if (electron)` inside a component.
 
 Adding to the preload surface means adding to `src/shared/api.ts` and `src/shared/ipc.ts`
 too. Keep it narrow and explicitly typed; there is deliberately no `ipcRenderer`
 passthrough.
+
+It is "two entry points" rather than "two shells over one view tree" because `v2.0` gave
+each shell a home route the other does not use — see the next section. That is the *only*
+view-layer fork, and it is decided once.
+
+## Storage: one port, two adapters, one file format
+
+`v2.0` moved the desktop off browser storage and onto **project files**. The shape of that
+is five rules, and every one of them is load-bearing:
+
+- **One async port, split in two** (`src/renderer/src/persistence/store.ts`). `ProjectStore`
+  is what an *editor* needs — `load`, `save` — and both adapters implement it, so
+  `stores/projects.ts` has one call site rather than a branch per shell. `ProjectLibrary`
+  adds what a *list* needs and exists in the browser build alone; `DocumentStore` adds what
+  the *open file* needs and exists on the desktop alone. Nothing throws "unsupported": the
+  type system says which surface exists where. Every method is async because a disk-backed
+  one cannot be anything else — that is why the browser adapter is async too.
+- **The renderer never names a file path.** `save` takes no path; it hands main serialized
+  text and main writes whatever it has open. Paths cross *outwards* only — the window title,
+  the conflict dialog, Reveal. `src/shared/document.ts` is where that rule is written down,
+  and no call in that surface accepts a path back. Do not add one.
+- **Every read and write carries a stamp** (`{ mtimeMs, size }`), and main refuses a write
+  whose file no longer matches. This is what makes a debounced autosave safe against a
+  `git checkout` landing under it, and it is the reason `DocumentConflictError` exists. A
+  filesystem with one-second mtime granularity would need a content hash instead; APFS was
+  measured and does not.
+- **Serialization is git-first, and there is exactly one of it.** `serializeProject` writes
+  one screen row per line and one character per line, in a stable key order, so a diff shows
+  the bytes that changed. Both writers — the desktop's document and the web's download — go
+  through it, and golden documents per mode hold the format still. A write that would not
+  change the file does not happen, so an idle editor does not churn a working tree.
+- **Change detection watches the document's *directory*, non-recursively, plus a `stat` on
+  focus.** A watch on the open *file* is single-shot — a `git checkout` replaces the inode
+  and the watch dies with it. Measured; do not "simplify" it back.
+
+`src/main/` owns the rest: `document.ts` (the open document, atomic writes),
+`documentFile.ts`, `documentWatch.ts`, `openRequests.ts`, `recent.ts`, `migration.ts`.
+**Every way a document can arrive ends in `openRequests.ts`** — `open-file`, `argv`,
+`second-instance`, a drop, the Open dialog, Open Recent, the reopen-at-launch — and it
+*announces* rather than adopts, so the renderer can flush what it holds into the old file
+before taking the new one.
 
 ## Things that look odd and are load-bearing
 
@@ -41,8 +82,9 @@ removed once the desktop shell shipped — and this is the short list of what no
   `file://` the router's `createWebHistory` is broken twice over: `location.pathname` on
   startup is the renderer's absolute disk path, and a reload after a `pushState` resolves
   against `file:///edit/<id>`, which does not exist. A custom *standard* scheme fixes both
-  and gives `localStorage` a real per-app origin. This is why `src/renderer/src/router/`
-  needed no Electron branch at all — do not add one.
+  and gives `localStorage` a real per-app origin. This is why the router needs no Electron
+  branch for *history* — the one fork in `src/renderer/src/router/` is which component `/`
+  resolves to, and nothing else belongs there.
 - **`electron.vite.config.ts` has a small plugin that puts `base` back to `'/'`.**
   electron-vite's preset assigns `base: './'` in an `enforce: 'pre'` hook on every
   production build, which overwrites ours. Given `'./'`,
@@ -70,6 +112,19 @@ removed once the desktop shell shipped — and this is the short list of what no
   are measurements from the running app, and the comments say what each one clears.
 - **`"type": "module"` stays.** ESM main + ESM preload were verified working; `sandbox:
   false` is what an ESM preload requires and is the intended posture here.
+- **The file association claims `.vic20`, never `.vic20.json`.** Windows associates on
+  the *last* extension only, so claiming the compound one would claim `.json` system-wide.
+  Legacy v1 exports still open through Open… and by drop, and deliberately not by
+  double-click.
+- **macOS needs `UTExportedTypeDeclarations` in `extendInfo` as well as `fileAssociations`.**
+  electron-builder emits `CFBundleDocumentTypes` and nothing else, which leaves the extension
+  resolving to a *dynamic* UTI — no name, no description, no icon, and that is what Get Info
+  shows. Exporting the type is what names it. Only the declaration goes there: a second
+  `CFBundleDocumentTypes` entry for the same extension would be one more thing for
+  LaunchServices to choose between.
+- **A drop target reads its path in the preload, via `webUtils.getPathForFile`.** `File.path`
+  was removed in Electron 32 and the renderer has no `webUtils`; `dragover` must be cancelled
+  or the browser engine takes the drop itself.
 
 ## Packaging traps
 
@@ -106,21 +161,36 @@ installer is the standing example.
 
 `../TMS9918-EDITOR` is structurally identical — same stack, same layout, same tooling, same
 router and persistence design, and an Electron shell that differs only in a handful of
-values — product name, appId, `app://` host, window measurements — which live in
-`electron-builder.yml`, `src/main/index.ts` and `src/main/windowState.ts`. A fix to the
-shell here is almost always a fix there too. It carries a sprite mode this repo does not, so
-its shortcut map and menu have entries with no counterpart here — the parts that differ are
-the editor, not the shell.
+values. They are all in one place per file:
+
+| What | Where |
+| --- | --- |
+| Product name, appId, file association, UTI, MIME type | `electron-builder.yml` |
+| `app://` host, protocol registration | `src/main/index.ts` |
+| Window measurements | `src/main/windowState.ts` |
+| Document extension, legacy extension, migration folder | `src/shared/document.ts` |
+| Published web app URL (share links) | `vite.web.config.ts`, `electron.vite.config.ts` |
+| Storage key prefix | `src/renderer/src/persistence/repository.ts` |
+
+Two things genuinely differ in the *editor* rather than the shell: how a screen row is
+chunked by the git-first serializer (`settings.columns` here, the mode's column count
+there) and the document key order. `PLAN.md` §9 is the full table. A fix to the shell here
+is almost always a fix there too — and that repo carries a sprite mode this one does not,
+so its shortcut map and menu have entries with no counterpart here. The parts that differ
+are the editor, not the shell.
 
 Its `PLAN.md` is meant to be **identical** in both repos: when a decision changes, change
 both copies. The rest of the desktop shell is duplicated rather than shared, on purpose —
 extracting a package is worth it only if a third editor appears.
 
-`PLAN.md` is the source of truth for the work in flight — its spikes, its confirmed
-decisions (D1–D22) and what it deliberately defers. It is currently the move off browser
-storage and onto **project files the desktop app opens by double-click**, which is a change
-big enough to touch two of the rules above: the desktop app will route `/` to its own start
-view rather than the project manager (the only view-layer fork, decided once in the router —
-no component branches on the shell), and the renderer will still never name a file path, the
-main process owning whichever document is open. Read it before changing anything under
-`src/renderer/src/persistence/`, `src/main/` or the router.
+`PLAN.md` is the record of the document-storage round that shipped as `v2.0.0` — its
+spikes, its confirmed decisions (D1–D22), what it measured, and what it deliberately
+defers (§12: multiple windows, sibling documents, a web document adapter, a merge driver).
+It is complete rather than in flight, and it is the reference behind the storage section
+above. Read it before changing anything under `src/renderer/src/persistence/`, `src/main/`
+or the router — particularly §6 (what was measured) and §7 (why each decision is what it
+is), so a rule is changed deliberately rather than tidied away.
+
+One thing it leaves standing and unproven: **the double-click association is verified on
+macOS and Linux and taken on trust on Windows** (S1, §11). Testing it is a real Windows job,
+like the NSIS installer.

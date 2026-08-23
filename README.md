@@ -10,9 +10,17 @@ native app for macOS, Windows and Linux, see **[Desktop](#desktop)**.
 
 ![The editor, with a multicolor sample project open](docs/screenshot.png)
 
-Everything runs client-side. There is no account, no server and no upload:
-projects live in your browser's `localStorage`, download as `.vic20.json`, and
-share as a single self-contained link.
+Everything runs client-side. There is no account, no server and no upload. The two
+builds keep projects differently, which is the one thing worth knowing before you
+start:
+
+- **In the browser**, projects live in that browser's storage, listed in a project
+  manager, downloadable as a file and shareable as a self-contained link.
+- **On the desktop**, a project *is* a file. `Dungeon.vic20` sits wherever you keep
+  it — beside the assembly in a game's repository, say — opens by double-click, and
+  goes through version control with everything else. There is no project list,
+  because the Finder, Explorer or file tree you already have open is the list. See
+  **[Desktop](#desktop)**.
 
 ## What it does
 
@@ -52,8 +60,9 @@ share as a single self-contained link.
   canvases painting under a finger.
 
 Four sample projects — a title screen, a night landscape, a dungeon and a
-wide-screen layout — are one click from the project list if you would rather
-start from something than from a blank grid.
+wide-screen layout — are one click away if you would rather start from something
+than from a blank grid: a row in the browser's project list, and *New from
+Sample ▸* on the desktop, which asks where to put the new file.
 
 ## The chip
 
@@ -226,11 +235,19 @@ adjacent, use the BASIC loader instead.
 
 ## Projects and sharing
 
-Projects autosave to `localStorage` under `vic20-editor:*` keys. From the project
-list you can rename, duplicate, delete, download one as `.vic20.json`, upload one
-back, or copy a share link — which packs the whole project into the link's `#v=`
-hash, so no server ever sees it and anyone who opens it gets an editable copy of
-their own. Undo history is per session and travels with neither.
+**In the browser**, projects autosave to `localStorage` under `vic20-editor:*`
+keys. From the project list you can rename, duplicate, delete, download one as a
+file, upload one back, or copy a share link — which packs the whole project into
+the link's `#v=` hash, so no server ever sees it and anyone who opens it gets an
+editable copy of their own.
+
+**On the desktop**, a project is a `.vic20` file and autosave writes it in place.
+Rename, duplicate and delete are file-manager operations there; *File ▸ Save a
+Copy…* covers branching off a variant. Share links stay a browser feature — they
+are made and opened in the project manager, which the desktop app does not have —
+and on the desktop the file itself is the portable copy.
+
+Undo history is per session and travels with none of it.
 
 ## Desktop
 
@@ -244,29 +261,89 @@ The same editor as a native app for macOS, Windows and Linux. Download it from t
 | Linux (x64) | `vic20-editor-<version>-linux-x86_64.AppImage` | `chmod +x`, then run it |
 | Linux (x64) | `vic20-editor-<version>-linux-amd64.deb` | `sudo apt install ./vic20-editor-<version>-linux-amd64.deb` |
 
-Everything the web app does, the desktop app does — it is one renderer behind two
-shells, not a port. What it adds:
+It is the same editor — one renderer behind two shells, not a port — with one thing
+changed underneath it: **a project is a file.**
 
-- **A real menu bar**, with the keyboard map as accelerators. Menu items follow
-  the open project: a hires project greys out the multicolor-only items, and the
-  project list greys everything but *New project*.
-- **Native save and open dialogs.** Every export — assembly, BASIC, binary, PNG,
-  project JSON — goes through the system save sheet, so you choose the folder and
-  the filename instead of fishing the file out of `~/Downloads`. Each kind of
-  export remembers the directory you last used. Importing a project opens a real
-  file panel.
-- **Its own storage.** Projects live in the app's own `userData` directory rather
-  than in a browser profile, so clearing browsing data cannot touch them, and they
-  are flushed to disk on the way out — an edit made a moment before you quit is
-  there on relaunch.
-- **A window that remembers itself**, including which display it was on and
-  whether it was maximized.
-- **No network at all.** The web app is already client-side; the desktop app has
-  no browser, no address bar and no tab.
+### Projects are files
 
-The desktop app's projects are **separate** from the web app's — different storage,
-no sync. Move one across with *Download* and *Upload* in the project list, or a
-share link.
+A project is a `.vic20` file that you put wherever you want it, most usefully in the
+repository of whatever you are building. Double-click one and the editor launches
+straight into it; drop one on the window and it opens. The app holds **one document
+at a time**, and saves it in place as you work.
+
+There is no project list and no workspace to choose, because the file manager
+already is one. The trade is honest and worth stating: rename, duplicate and delete
+are Finder or Explorer operations now, not buttons in the app. *File ▸ Save a
+Copy…* covers the common case of branching off a variant.
+
+What you get instead of a list:
+
+- **A start screen** with *New Project…*, *New from Sample ▸*, *Open…* and **Recent
+  Documents** — the same recents that are in *File ▸ Open Recent ▸*, so a project
+  you were working on yesterday is two clicks away with no list to find it in.
+- **`Esc` closes the document** and returns to the start screen. (In the browser
+  the same key goes back to the project list.)
+- **Reveal in Finder** — *Show in Explorer* on Windows, *Show in Files* on Linux —
+  for the open document.
+
+The file itself is plain JSON, written to be read by `git diff`: one screen row per
+line, one character per line, and a stable key order, so a commit shows the bytes
+you changed rather than one enormous line. A project nobody edited is not
+rewritten, so an idle editor does not dirty your working tree.
+
+### It survives a `git checkout`
+
+The point of putting projects in a repository is switching branches, so the editor
+watches for the file changing underneath it:
+
+- A checkout under a **clean** document reloads it in place and says so quietly.
+- A checkout under **unsaved edits** asks, naming both versions, and writes nothing
+  until you answer.
+- Every write states what it expects to find on disk and is refused if the file
+  moved, so a debounced autosave landing 500 ms into a branch switch cannot
+  overwrite the checkout.
+- A document deleted behind the app's back is reported rather than silently
+  recreated.
+
+### The rest of what the shell adds
+
+- **A real menu bar.** File is a document app's — New Project…, New from Sample ▸,
+  Open…, Open Recent ▸, Close Document, Save, Save a Copy…, Reveal. Menu items
+  follow the open project: a hires project greys out the multicolor-only items, and
+  the start screen greys everything but *New Project…*. The menu carries **no
+  accelerators** for the editor's own keys, deliberately — the keyboard map is the
+  page's job, exactly as on the web, and an accelerator would fire the action
+  twice. Keys are where they have always been, behind `?`.
+- **Native save and open dialogs.** Every export — assembly, BASIC, `.prg`, binary,
+  PNG, a copy of the project — goes through the system save sheet, so you choose
+  the folder and the filename instead of fishing the file out of `~/Downloads`.
+  Each kind of export remembers the directory you last used.
+- **A window that remembers itself**, including which display it was on and whether
+  it was maximized, and the document it had open — quit with a project open and
+  relaunching returns to it.
+- **No network at all.** The web app is already client-side; the desktop app has no
+  browser, no address bar and no tab.
+
+### Coming from version 1.6
+
+The `1.6` desktop app kept projects in browser storage inside the app. The first
+launch of `2.0` says what is about to happen and **copies** each of them into
+`~/Documents/VIC-20 Editor`, then seeds Recent Documents so they are reachable.
+Nothing is moved: the originals stay in the app's browser storage until you press
+*Remove Browser Copies*, and only copies that were actually written are ever
+removed. A project that could not be read is named and skipped rather than dropped
+silently.
+
+Files downloaded from the web app — `.vic20.json` — still open, through *Open…* or
+by dropping them on the window. They are not double-clickable, because claiming
+that extension on Windows would mean claiming `.json` system-wide.
+
+### The desktop app and the web app
+
+Different storage, no sync, and that has not changed. The web app's projects live
+in its browser storage; the desktop app's are files on disk. To move one across,
+*Download* from the browser and *Open…* it on the desktop, or *Save a Copy…* on the
+desktop and *Upload Project* into the browser.
 
 ### Building the desktop app from source
 
@@ -331,20 +408,20 @@ macOS runner and Apple credentials. Those artifacts are built locally, with the
 commands under [Desktop](#building-the-desktop-app-from-source).
 
 See [CLAUDE.md](CLAUDE.md) for the source layout and the decisions behind it, and
-[ELECTRON-PLAN.md](ELECTRON-PLAN.md) for the measurements they rest on.
+[PLAN.md](PLAN.md) for the measurements they rest on.
 
 ## Layout
 
 ```
 src/renderer/     the editor — the whole web app, and all the desktop app draws
   src/domain/       pure logic — no Vue (types, charOps, screenOps, export, serialization)
-  src/persistence/  localStorage repository and preferences
+  src/persistence/  the storage port and its two adapters, migration, preferences
   src/stores/       Pinia stores (projects, editor + undo history)
   src/components/   base/ + editor/ + projects/ components
   src/samples/      the four bundled sample projects
-  src/views/        project manager and editor views
-  src/utils/        including the desktop/browser forks (download, upload, platform)
-src/main/         the Electron main process — window, menu, native dialogs
+  src/views/        the browser's project manager, the desktop's start screen, the editor
+  src/utils/        including the desktop/browser forks (download, upload, platform, strings)
+src/main/         the Electron main process — window, menu, dialogs, the open document
 src/preload/      the contextBridge API, and nothing else crosses
 src/shared/       the types and channel names main and renderer agree on
 rom/              VIC-20 character ROM dump, build-time input only
@@ -354,7 +431,13 @@ build/            icons, entitlements, and the icon generator that feeds them
 
 The renderer imports nothing from `src/main/`, and reaches the desktop only
 through `window.api` — so the same tree builds for the browser, where that object
-is simply absent.
+is simply absent. It never names a file path either: main owns whichever document
+is open, and `save` hands it text rather than a destination.
+
+Storage sits behind one async port with two adapters — browser storage and the open
+document — so there is one `load` and one `save` call site. The only view-layer
+difference between the shells is which component `/` resolves to, decided once in
+the router; no component asks which shell it is in.
 
 ## Keyboard
 
@@ -432,7 +515,7 @@ it returns to the project list.
 | `Backspace` / `Delete` | Erase the cursor cell                                  |
 | `Esc`                  | Hide the cursor                                        |
 
-### Project list
+### Project list, or the desktop start screen
 
 | Key | Action             |
 | --- | ------------------ |
