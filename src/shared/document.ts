@@ -89,3 +89,25 @@ export interface RecentDocument {
   /** Where it lives, for the second line of the entry. */
   directory: string
 }
+
+/**
+ * What happened to the open document behind the app's back (PLAN.md D7).
+ *
+ * Two things can, and they are answered differently: a file that *changed* can
+ * be reloaded, and a file that is *gone* cannot. Everything else — a branch
+ * switch, a `git stash`, another editor saving over it, a file moved out from
+ * under the app — reduces to one of these two.
+ */
+export type DocumentChange = 'modified' | 'deleted'
+
+/**
+ * What a write answers (D6, D7).
+ *
+ * The usual three, plus the one only a write has: main holds the stamp the
+ * open document had when it was last read or written, and refuses a write to a
+ * file that no longer matches it. `conflict` is not a failure — nothing is
+ * wrong with the disk — it is the app declining to overwrite something it did
+ * not put there, and the renderer answering it is D7.
+ */
+export type DocumentWriteResult =
+  DocumentResult<DocumentStamp> | { status: 'conflict'; change: DocumentChange }

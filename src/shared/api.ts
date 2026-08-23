@@ -13,8 +13,9 @@
 
 import type {
   CreateDocumentRequest,
+  DocumentChange,
   DocumentResult,
-  DocumentStamp,
+  DocumentWriteResult,
   OpenDocument,
   RecentDocument,
 } from './document'
@@ -131,8 +132,26 @@ export interface AppApi {
      * renderer finds its way back after a reload (D9).
      */
     current(): Promise<DocumentResult<OpenDocument>>
-    /** Write to the open document, atomically (D6). Answers with its new stamp. */
-    write(text: string): Promise<DocumentResult<DocumentStamp>>
+    /**
+     * Write to the open document, atomically (D6). Answers with its new stamp,
+     * or with `conflict` when the file no longer matches the stamp main is
+     * holding — a branch switch, another editor, a deletion. A conflict is not
+     * a failure: it is the write declining to happen, and D7 is the renderer
+     * answering it.
+     *
+     * `force` is that answer — overwrite what is on disk, or recreate a file
+     * that is gone — and belongs to a choice the user just made.
+     */
+    write(text: string, force?: boolean): Promise<DocumentWriteResult>
+    /**
+     * The open document changed on disk, or is gone (D7). Returns an
+     * unsubscribe function.
+     *
+     * An announcement rather than an instruction: whether the change can simply
+     * be taken depends on the unsaved edit the renderer is holding, which is
+     * why main does not decide.
+     */
+    onChanged(callback: (change: DocumentChange) => void): () => void
     /** Forget the open document. Writes nothing. */
     close(): Promise<void>
     /** Show the open document in Finder / Explorer / the desktop's file manager. */

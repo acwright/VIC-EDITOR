@@ -65,8 +65,22 @@ export const IPC = {
    * renderer recovers after a reload — main is the process that knows (D9).
    */
   DOCUMENT_CURRENT: 'document:current',
-  /** Renderer → main: write these bytes to the open document, atomically (D6). */
+  /**
+   * Renderer → main: write these bytes to the open document, atomically (D6).
+   * Refused, rather than performed, when the file no longer matches the stamp
+   * main is holding — the renderer answers that refusal with D7's dialog and
+   * writes again with `force` if the user chooses to.
+   */
   DOCUMENT_WRITE: 'document:write',
+  /**
+   * Main → renderer: the open document changed on disk, or is gone (D7).
+   *
+   * Sent by the directory watcher and by the check main runs when the window
+   * regains focus (S3). It is an announcement, not an instruction: the renderer
+   * decides what to do with it, because the renderer is the side that knows
+   * whether there is an unsaved edit to weigh against it.
+   */
+  DOCUMENT_CHANGED: 'document:changed',
   /** Renderer → main: nothing is open any more. */
   DOCUMENT_CLOSE: 'document:close',
   /** Renderer → main: show the open document in the platform's file manager. */

@@ -6,7 +6,7 @@ import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import { IPC } from '../shared/ipc'
 import { EMPTY_MENU_CONTEXT, type MenuContext } from '../shared/menu'
 import { registerDialogHandlers } from './dialogs'
-import { registerDocumentHandlers, restoreLastDocument } from './document'
+import { checkOpenDocument, registerDocumentHandlers, restoreLastDocument } from './document'
 import { buildMenu, setMenuContext } from './menu'
 import {
   documentFromArgv,
@@ -179,6 +179,12 @@ function createWindow(): void {
   mainWindow.webContents.on('did-finish-load', () => {
     if (mainWindow) rendererDidLoad(mainWindow)
   })
+
+  // Coming back to the app is when a branch switch is most likely to have
+  // happened, and this is the half of the detection that always works: the
+  // directory watcher is the prompt one, focus is the one that needs nothing
+  // from the platform (S3, D7).
+  mainWindow.on('focus', () => checkOpenDocument())
 
   // Give the renderer a chance to flush its debounced autosave before the
   // window goes away.

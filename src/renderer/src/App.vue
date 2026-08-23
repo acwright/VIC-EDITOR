@@ -1,9 +1,11 @@
 <script setup lang="ts">
 import { onMounted, onUnmounted } from 'vue'
 import { RouterView, useRouter } from 'vue-router'
+import DocumentConflictDialog from '@/components/projects/DocumentConflictDialog.vue'
 import { capturePendingShare } from '@/domain/share'
 import { useProjectsStore } from '@/stores/projects'
 import { desktop } from '@/utils/desktop'
+import type { DocumentChange } from '@shared/document'
 
 // A share link (`#p=…`) is read and stripped once, before the manager view
 // mounts and offers it (PLAN.md §12 Decision 18). Links point at the app root,
@@ -20,6 +22,7 @@ if (capturePendingShare() && router.currentRoute.value.path !== '/') {
 const projects = useProjectsStore()
 let stopBeforeQuit: (() => void) | undefined
 let stopPending: (() => void) | undefined
+let stopChanged: (() => void) | undefined
 
 /**
  * A document has arrived (D15).
@@ -34,6 +37,22 @@ let stopPending: (() => void) | undefined
  */
 async function openArrivedDocument(): Promise<void> {
   const project = await projects.takePendingDocument()
+  if (!project) return
+  if (router.currentRoute.value.params['projectId'] !== project.id) {
+    await router.push(`/edit/${project.id}`)
+  }
+}
+
+/**
+ * The open document changed on disk, or is gone (D7).
+ *
+ * Main announces; the store decides — reload it quietly, or ask. The routing is
+ * this component's half again, and it matters here for a reason it does not in
+ * the arrival path: a reload can bring back a file whose project *id* differs,
+ * which is what a branch holding a different document at the same path is.
+ */
+async function onDocumentChanged(change: DocumentChange): Promise<void> {
+  const project = await projects.documentChangedOnDisk(change)
   if (!project) return
   if (router.currentRoute.value.params['projectId'] !== project.id) {
     await router.push(`/edit/${project.id}`)
@@ -70,6 +89,7 @@ onMounted(() => {
     api.app.saveComplete()
   })
   stopPending = api.document.onPending(() => void openArrivedDocument())
+  stopChanged = api.document.onChanged((change) => void onDocumentChanged(change))
   window.addEventListener('dragover', onDragOver)
   window.addEventListener('drop', onDrop)
 })
@@ -77,6 +97,7 @@ onMounted(() => {
 onUnmounted(() => {
   stopBeforeQuit?.()
   stopPending?.()
+  stopChanged?.()
   window.removeEventListener('dragover', onDragOver)
   window.removeEventListener('drop', onDrop)
 })
@@ -84,4 +105,7 @@ onUnmounted(() => {
 
 <template>
   <RouterView />
+  <!-- Only ever open on the desktop, and only when the file moved in a way
+       that costs something to resolve (D7). -->
+  <DocumentConflictDialog />
 </template>

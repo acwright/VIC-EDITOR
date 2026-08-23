@@ -4,7 +4,7 @@ import { PROJECT_TYPES } from '@/domain/modes'
 import { ProjectValidationError, serializeProject } from '@/domain/serialization'
 import { fakeDocumentBridge } from '@/testing/documentBridge'
 import { createDocumentStore } from '../documentStore'
-import { DocumentError } from '../store'
+import { DocumentConflictError, DocumentError } from '../store'
 import { describeProjectStore } from './storeContract'
 
 const TYPE = PROJECT_TYPES[0]!
@@ -149,6 +149,76 @@ describe('documentStore', () => {
     bridge.arrive('Broken', '{ "nope": true }')
     // ProjectValidationError says which field was wrong; the banner shows it.
     await expect(store.takePending()).rejects.toThrow(ProjectValidationError)
+  })
+
+  // --- The file changing underneath us (PLAN.md D6, D7) ---
+
+  it('refuses a save when the file is no longer the one it read', async () => {
+    const bridge = fakeDocumentBridge()
+    const store = createDocumentStore(bridge.api)
+    const project = createProject({ name: 'Alpha', type: TYPE })
+    await store.createDocument(project)
+
+    // A branch switch, or another program writing to it.
+    bridge.changeOnDisk(serializeProject(createProject({ name: 'From the branch', type: TYPE })))
+
+    project.name = 'Alpha edited'
+    await expect(store.save(project)).rejects.toThrow(DocumentConflictError)
+    // The refusal is the point: the checkout is still on disk, whole.
+    expect(bridge.document?.text).toContain('From the branch')
+  })
+
+  it('refuses a save to a file that is gone, rather than recreating it', async () => {
+    const bridge = fakeDocumentBridge()
+    const store = createDocumentStore(bridge.api)
+    const project = createProject({ name: 'Alpha', type: TYPE })
+    await store.createDocument(project)
+    bridge.deleteOnDisk()
+
+    project.name = 'Alpha edited'
+    await expect(store.save(project)).rejects.toMatchObject({ change: 'deleted' })
+    expect(bridge.document?.text).toBe('')
+  })
+
+  it('takes the file when told to reload, and can save again afterwards', async () => {
+    const bridge = fakeDocumentBridge()
+    const store = createDocumentStore(bridge.api)
+    const mine = createProject({ name: 'Alpha', type: TYPE })
+    await store.createDocument(mine)
+
+    const theirs = createProject({ name: 'From the branch', type: TYPE })
+    bridge.changeOnDisk(serializeProject(theirs))
+
+    expect(await store.reloadDocument()).toEqual(theirs)
+    // Reloading is also what clears the conflict: the adapter has read what is
+    // there now, so the next ordinary save is no longer refused.
+    theirs.name = 'Edited after the reload'
+    await expect(store.save(theirs)).resolves.toBeUndefined()
+  })
+
+  it('overwrites the file when told to keep this version', async () => {
+    const bridge = fakeDocumentBridge()
+    const store = createDocumentStore(bridge.api)
+    const mine = createProject({ name: 'Alpha', type: TYPE })
+    await store.createDocument(mine)
+    bridge.changeOnDisk(serializeProject(createProject({ name: 'From the branch', type: TYPE })))
+
+    mine.name = 'Alpha edited'
+    await expect(store.overwrite(mine)).resolves.toBeUndefined()
+    expect(bridge.document?.text).toBe(serializeProject(mine))
+    // And the conflict is over: an ordinary save goes through.
+    await expect(store.save(mine)).resolves.toBeUndefined()
+  })
+
+  it('puts back a document that was deleted, when told to', async () => {
+    const bridge = fakeDocumentBridge()
+    const store = createDocumentStore(bridge.api)
+    const project = createProject({ name: 'Alpha', type: TYPE })
+    await store.createDocument(project)
+    bridge.deleteOnDisk()
+
+    await expect(store.overwrite(project)).resolves.toBeUndefined()
+    expect(bridge.document?.text).toBe(serializeProject(project))
   })
 
   it('reports where a new document would go, and where the user moved it to', async () => {

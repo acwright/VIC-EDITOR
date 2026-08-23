@@ -21,6 +21,7 @@ export const stubDocumentApi: AppApi['document'] = {
   openRecent: () => Promise.resolve(),
   current: () => Promise.resolve({ status: 'none' }),
   write: () => Promise.resolve({ status: 'none' }),
+  onChanged: () => () => {},
   close: () => Promise.resolve(),
   reveal: () => Promise.resolve(),
   defaultLocation: () => Promise.resolve('/documents'),

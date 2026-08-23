@@ -5,6 +5,7 @@ import App from '../App.vue'
 import { createProject } from '@/domain/factory'
 import { serializeProject } from '@/domain/serialization'
 import { fakeDocumentBridge, type FakeDocumentBridge } from '@/testing/documentBridge'
+import { useProjectsStore } from '@/stores/projects'
 import { stubApi } from '@/utils/__tests__/stubApi'
 
 /**
@@ -26,6 +27,9 @@ vi.mock('vue-router', () => ({
 let main: FakeDocumentBridge
 
 beforeEach(() => {
+  // jsdom has no showModal(); the conflict dialog only needs it not to throw.
+  HTMLDialogElement.prototype.showModal = vi.fn<() => void>()
+  HTMLDialogElement.prototype.close = vi.fn<() => void>()
   push.mockClear()
   currentRoute.value = { path: '/', params: {} }
   main = fakeDocumentBridge()
@@ -92,5 +96,73 @@ describe('App, on the desktop', () => {
     const event = new Event('dragover', { cancelable: true })
     window.dispatchEvent(event)
     expect(event.defaultPrevented).toBe(true)
+  })
+
+  /**
+   * The other announcement this component listens for (PLAN.md D7): not "a
+   * document is waiting" but "the one you have moved".
+   */
+  describe('when the open document changes on disk', () => {
+    /** A document open and settled, the way a session actually starts. */
+    async function opened(name = 'Title Screen') {
+      const project = createProject({ name, type: 'hires' })
+      const wrapper = mount(App)
+      await flushPromises()
+      main.arrive(name, serializeProject(project))
+      await flushPromises()
+      currentRoute.value = { path: `/edit/${project.id}`, params: { projectId: project.id } }
+      push.mockClear()
+      return { wrapper, project, store: useProjectsStore() }
+    }
+
+    it('takes the file in place when nothing here is unsaved', async () => {
+      const { store } = await opened()
+      const theirs = createProject({ name: 'From the branch', type: 'hires' })
+
+      main.changeOnDisk(serializeProject(theirs))
+      await flushPromises()
+
+      expect(store.current?.id).toBe(theirs.id)
+      expect(store.documentConflict).toBeNull()
+      // A branch can hold a different document at the same path, and the route
+      // is named after the project rather than the file (D9).
+      expect(push).toHaveBeenCalledWith(`/edit/${theirs.id}`)
+    })
+
+    it('asks first when there is an unsaved edit, and names both sides', async () => {
+      const { wrapper, store } = await opened()
+      store.current!.name = 'Title Screen edited'
+      store.markDirty()
+
+      main.changeOnDisk(serializeProject(createProject({ name: 'From the branch', type: 'hires' })))
+      await flushPromises()
+
+      expect(store.documentConflict).toBe('modified')
+      expect(push).not.toHaveBeenCalled()
+      expect(vi.mocked(HTMLDialogElement.prototype.showModal)).toHaveBeenCalled()
+      const text = wrapper.text()
+      expect(text).toContain('changed on disk')
+      expect(text).toContain('Reloading discards them')
+      expect(text).toContain('Reload from Disk')
+      expect(text).toContain('Keep My Version')
+    })
+
+    it('says a document that is gone is gone, and offers to put it back', async () => {
+      const { wrapper, store } = await opened()
+
+      main.deleteOnDisk()
+      await flushPromises()
+
+      expect(store.documentConflict).toBe('deleted')
+      expect(wrapper.text()).toContain('no longer on disk')
+      expect(wrapper.text()).toContain('Save It Again')
+    })
+
+    it('asks nothing at all while the file is where it was', async () => {
+      await opened()
+      // The dialog is mounted like every other one here; what matters is that
+      // it never opens over a document nobody has disturbed.
+      expect(vi.mocked(HTMLDialogElement.prototype.showModal)).not.toHaveBeenCalled()
+    })
   })
 })

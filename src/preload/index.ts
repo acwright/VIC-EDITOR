@@ -3,8 +3,9 @@ import { IPC } from '../shared/ipc'
 import type { AppApi, OpenFileRequest, OpenedTextFile, SaveFileRequest } from '../shared/api'
 import type {
   CreateDocumentRequest,
+  DocumentChange,
   DocumentResult,
-  DocumentStamp,
+  DocumentWriteResult,
   OpenDocument,
   RecentDocument,
 } from '../shared/document'
@@ -56,8 +57,13 @@ const api: AppApi = {
     recent: (): Promise<RecentDocument[]> => ipcRenderer.invoke(IPC.DOCUMENT_RECENT),
     openRecent: (id: string): Promise<void> => ipcRenderer.invoke(IPC.DOCUMENT_OPEN_RECENT, id),
     current: (): Promise<DocumentResult<OpenDocument>> => ipcRenderer.invoke(IPC.DOCUMENT_CURRENT),
-    write: (text: string): Promise<DocumentResult<DocumentStamp>> =>
-      ipcRenderer.invoke(IPC.DOCUMENT_WRITE, text),
+    write: (text: string, force = false): Promise<DocumentWriteResult> =>
+      ipcRenderer.invoke(IPC.DOCUMENT_WRITE, text, force),
+    onChanged: (callback: (change: DocumentChange) => void): (() => void) => {
+      const handler = (_event: unknown, change: DocumentChange): void => callback(change)
+      ipcRenderer.on(IPC.DOCUMENT_CHANGED, handler)
+      return () => ipcRenderer.off(IPC.DOCUMENT_CHANGED, handler)
+    },
     close: (): Promise<void> => ipcRenderer.invoke(IPC.DOCUMENT_CLOSE),
     reveal: (): Promise<void> => ipcRenderer.invoke(IPC.DOCUMENT_REVEAL),
     defaultLocation: (): Promise<string> => ipcRenderer.invoke(IPC.DOCUMENT_DEFAULT_LOCATION),

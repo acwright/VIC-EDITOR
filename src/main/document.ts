@@ -6,16 +6,20 @@ import {
   DOCUMENT_EXTENSION,
   DOCUMENT_TYPE_NAME,
   type CreateDocumentRequest,
+  type DocumentChange,
   type DocumentResult,
   type DocumentStamp,
+  type DocumentWriteResult,
   type OpenDocument,
 } from '../shared/document'
 import {
   documentFileName,
   readDocumentAt,
   resolveDocumentPath,
+  stampOf,
   writeDocumentAt,
 } from './documentFile'
+import { stopWatchingDocument, watchDocument } from './documentWatch'
 import { noteRecentDocument, recentDocumentPath, recentDocuments } from './recent'
 import { requestOpen, takePendingDocument } from './openRequests'
 import { loadLastDocument, saveLastDocument } from './windowState'
@@ -37,12 +41,34 @@ import { loadLastDocument, saveLastDocument } from './windowState'
  * **`adopt` is the only thing that moves the open document**, and every arrival
  * reaches it through `openRequests.ts` (D15) after the renderer has flushed
  * whatever it was holding (D17).
+ *
+ * Since Phase F5 it also owns the *other* half of that: the file changing while
+ * the app holds it. `openStamp` is what the app last saw on disk, every write
+ * is refused unless the file still matches it (D6), and a change that is
+ * noticed — by the directory watcher or by the check on focus (S3) — is
+ * announced to the renderer rather than acted on here, because the unsaved edit
+ * that has to be weighed against it lives over there (D7).
  */
 
 /** The document the app has open, or `null`. Main's answer, not the renderer's. */
 let openPath: string | null = null
-/** What it was when we last read or wrote it. Phase F5's guard reads this. */
+/**
+ * What the file was when the app last read or wrote it.
+ *
+ * This is the stamp every write is measured against (D6). It moves only when
+ * *this app* reads or writes the document — noticing an external change
+ * deliberately leaves it alone, so the guard keeps refusing until the user has
+ * answered the conflict one way or the other.
+ */
 let openStamp: DocumentStamp | null = null
+/**
+ * The external change the renderer has already been told about.
+ *
+ * Focus fires often and a watcher can fire twice for one change; without this
+ * the same `git checkout` would be announced over and over. Cleared whenever
+ * the app itself reads or writes, which is what makes the *next* change new.
+ */
+let announced: { change: DocumentChange; stamp: DocumentStamp | null } | null = null
 /**
  * Where the next new document goes (D10). Seeded from the folder of the last
  * document opened, so the second project of a session lands beside the first —
@@ -50,6 +76,67 @@ let openStamp: DocumentStamp | null = null
  * restart as well.
  */
 let newDocumentDirectory: string | null = null
+
+// --- External change (D7) ---
+
+/** Whether two stamps describe the same state of a file. */
+function sameStamp(a: DocumentStamp | null, b: DocumentStamp | null): boolean {
+  if (!a || !b) return a === b
+  return a.mtimeMs === b.mtimeMs && a.size === b.size
+}
+
+/** What the open document is on disk right now, or null if it is not there. */
+function stampOnDisk(): DocumentStamp | null {
+  if (!openPath) return null
+  try {
+    return stampOf(openPath)
+  } catch {
+    return null
+  }
+}
+
+/**
+ * How the file differs from what the app last saw, if it does (D7).
+ *
+ * `{mtimeMs, size}` is enough to answer this on APFS, where six back-to-back
+ * writes of the same length produced six distinct mtimes (S3). A filesystem
+ * with one-second granularity would need a content hash, and this is the one
+ * function that would have to learn it.
+ */
+function externalChange(): DocumentChange | null {
+  if (!openPath || !openStamp) return null
+  const stamp = stampOnDisk()
+  if (!stamp) return 'deleted'
+  return sameStamp(stamp, openStamp) ? null : 'modified'
+}
+
+/** Tell the renderer, once per change (D7). */
+function announce(change: DocumentChange): void {
+  const stamp = stampOnDisk()
+  if (announced && announced.change === change && sameStamp(announced.stamp, stamp)) return
+  announced = { change, stamp }
+  for (const window of BrowserWindow.getAllWindows()) {
+    if (!window.isDestroyed()) window.webContents.send(IPC.DOCUMENT_CHANGED, change)
+  }
+}
+
+/**
+ * Look at the open document and say so if it moved.
+ *
+ * Called on every window focus and on every event from the directory watcher —
+ * the watcher is the prompt one and focus is the one that always works, and
+ * both end here rather than each having an opinion (S3).
+ */
+export function checkOpenDocument(): void {
+  const change = externalChange()
+  if (change) announce(change)
+}
+
+/** The app itself touched the file: this is the new baseline, not a change. */
+function holdStamp(stamp: DocumentStamp): void {
+  openStamp = stamp
+  announced = null
+}
 
 // --- The open document ---
 
@@ -64,7 +151,10 @@ function adopt(path: string): OpenDocument {
   const resolved = resolveDocumentPath(path) ?? path
   const document = readDocumentAt(resolved)
   openPath = resolved
-  openStamp = document.stamp
+  holdStamp(document.stamp)
+  // The watch follows the document, because it is a watch on the *directory*
+  // the document is in (S3).
+  watchDocument(resolved, checkOpenDocument)
   // The next new document lands beside the one just opened (D10).
   newDocumentDirectory = dirname(resolved)
   // Recents are the desktop's primary navigation (D16), and the last document
@@ -174,7 +264,11 @@ export function restoreLastDocument(): void {
  * Re-read the open document.
  *
  * The renderer calls this on every mount, so a ⌘R at `/edit/<id>` finds its way
- * back to the file rather than to storage that no longer holds it (D9).
+ * back to the file rather than to storage that no longer holds it (D9). It is
+ * also how D7's reload is performed: what comes back is whatever the file holds
+ * *now*, and the stamp that comes with it is the new baseline — so a conflict
+ * the user answered with "take the file" is answered, and the guard stops
+ * refusing.
  */
 function current(): DocumentResult<OpenDocument> {
   if (!openPath) return { status: 'none' }
@@ -183,18 +277,41 @@ function current(): DocumentResult<OpenDocument> {
   }
   try {
     const document = readDocumentAt(openPath)
-    openStamp = document.stamp
+    holdStamp(document.stamp)
     return { status: 'ok', value: document }
   } catch (error) {
     return { status: 'error', reason: reasonOf(error) }
   }
 }
 
-function write(text: string): DocumentResult<DocumentStamp> {
+/**
+ * Write to the open document, atomically and under guard (D6).
+ *
+ * The guard is the whole safety property of the round: a debounced autosave
+ * that was already in flight must not land on top of a `git checkout`. So
+ * every write states what it expects to find — the stamp from the last read or
+ * write — and a file that no longer matches is *refused*, with the difference
+ * named. A missing file is refused too, which is what stops an autosave tick
+ * from quietly recreating a document the user deleted.
+ *
+ * `force` is the user having answered the conflict: overwrite what is there, or
+ * put back a file that is gone. Nothing in the app sets it on its own.
+ */
+function write(text: string, force = false): DocumentWriteResult {
   if (!openPath) return { status: 'error', reason: 'No document is open.' }
+  if (!force) {
+    const change = externalChange()
+    if (change) {
+      // The renderer may not have heard yet — a write can beat both the
+      // watcher and the focus check — so this is also an announcement.
+      announce(change)
+      return { status: 'conflict', change }
+    }
+  }
   try {
-    openStamp = writeDocumentAt(openPath, text)
-    return { status: 'ok', value: openStamp }
+    const stamp = writeDocumentAt(openPath, text)
+    holdStamp(stamp)
+    return { status: 'ok', value: stamp }
   } catch (error) {
     return { status: 'error', reason: reasonOf(error) }
   }
@@ -203,6 +320,8 @@ function write(text: string): DocumentResult<DocumentStamp> {
 function close(): void {
   openPath = null
   openStamp = null
+  announced = null
+  stopWatchingDocument()
   // Closing a document is a decision: the next launch shows the start screen
   // rather than reopening what was deliberately put away (D11).
   saveLastDocument(null)
@@ -261,7 +380,7 @@ export function registerDocumentHandlers(): void {
   ipcMain.handle(IPC.DOCUMENT_RECENT, () => recentDocuments())
   ipcMain.handle(IPC.DOCUMENT_OPEN_RECENT, (_event, id: string) => openRecent(id))
   ipcMain.handle(IPC.DOCUMENT_CURRENT, () => current())
-  ipcMain.handle(IPC.DOCUMENT_WRITE, (_event, text: string) => write(text))
+  ipcMain.handle(IPC.DOCUMENT_WRITE, (_event, text: string, force: boolean) => write(text, force))
   ipcMain.handle(IPC.DOCUMENT_CLOSE, () => close())
   ipcMain.handle(IPC.DOCUMENT_REVEAL, () => reveal())
   ipcMain.handle(IPC.DOCUMENT_DEFAULT_LOCATION, () => currentLocation())

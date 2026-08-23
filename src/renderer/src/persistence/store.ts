@@ -13,7 +13,7 @@
  */
 
 import type { Project } from '@/domain/types'
-import type { RecentDocument } from '@shared/document'
+import type { DocumentChange, RecentDocument } from '@shared/document'
 import type { ProjectSummary } from './repository'
 
 export interface ProjectStore {
@@ -77,6 +77,23 @@ export interface DocumentStore extends ProjectStore {
   takePending(): Promise<Project | null>
   /** Forget the open document. Writes nothing. */
   closeDocument(): Promise<void>
+  /**
+   * Re-read the open document, taking whatever is on disk now (D7).
+   *
+   * The other side of `save`: this is how a document that changed underneath
+   * the app — a branch switch, another editor — is taken, and it is the only
+   * thing that clears a conflict without writing anything.
+   */
+  reloadDocument(): Promise<Project | null>
+  /**
+   * Write over what is on disk, conflict and all (D7).
+   *
+   * Never called on the app's own initiative. It is the user answering "the
+   * file changed, and I want my version" — or "put it back", when the file was
+   * deleted — and it is deliberately a different call from `save` so that no
+   * ordinary code path can reach it.
+   */
+  overwrite(project: Project): Promise<void>
   /** Where a new document would go, for the New dialog's location row (D10). */
   defaultLocation(): Promise<string>
   /** Ask for another location; `null` if the user cancelled. */
@@ -92,6 +109,23 @@ export class DocumentError extends Error {
   constructor(reason: string) {
     super(reason)
     this.name = 'DocumentError'
+  }
+}
+
+/**
+ * A write was refused because the file is no longer the one the app read (D6).
+ *
+ * Distinct from `DocumentError` because it is not a failure and must not be
+ * shown as one: nothing is wrong, the file simply changed, and the only thing
+ * that can resolve it is a person choosing between two versions (D7). The
+ * Pinia store catches this and raises the conflict instead of the banner.
+ */
+export class DocumentConflictError extends Error {
+  constructor(readonly change: DocumentChange) {
+    super(
+      change === 'deleted' ? 'The document is no longer on disk.' : 'The document changed on disk.',
+    )
+    this.name = 'DocumentConflictError'
   }
 }
 

@@ -38,11 +38,34 @@ watch(
     // result; this drops the stale view state that would follow it.
     if (id !== props.projectId) return
     openState.value = project ? 'ready' : 'missing'
-    editor.reset()
   },
   { immediate: true },
 )
 onBeforeUnmount(() => void store.close())
+
+/**
+ * Selection and undo history belong to the project object on screen.
+ *
+ * Watching the *project* rather than the route id is what covers Phase F5's
+ * reload: a document taken back from disk replaces the project under an
+ * unchanged `/edit/<id>`, and an undo stack whose commands describe the version
+ * that was just discarded is worse than no undo stack at all (D7).
+ */
+watch(
+  () => store.current,
+  () => editor.reset(),
+)
+
+/** The quiet half of D7: "Reloaded from disk", which nobody has to act on. */
+let noticeTimer: ReturnType<typeof setTimeout> | undefined
+watch(
+  () => store.lastNotice,
+  (notice) => {
+    clearTimeout(noticeTimer)
+    if (notice) noticeTimer = setTimeout(() => store.dismissNotice(), 5000)
+  },
+)
+onBeforeUnmount(() => clearTimeout(noticeTimer))
 
 const SAVE_STATE_LABEL = { saved: 'Saved', saving: 'Saving…', unsaved: 'Unsaved' } as const
 
@@ -207,6 +230,19 @@ const saveError = computed(() => store.lastError)
           <X class="size-4" />
         </AppButton>
       </div>
+    </div>
+
+    <!-- A document that changed on disk while nothing here was unsaved was
+         simply taken (D7). Worth saying, not worth interrupting for. -->
+    <div
+      v-if="store.lastNotice"
+      class="flex shrink-0 items-center justify-between gap-3 border-b border-ink-700 bg-ink-850 px-3 py-2 text-sm text-ink-300"
+      role="status"
+    >
+      <p>{{ store.lastNotice }}</p>
+      <AppButton label="Dismiss" @click="store.dismissNotice()">
+        <X class="size-4" />
+      </AppButton>
     </div>
 
     <main

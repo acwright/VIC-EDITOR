@@ -234,3 +234,186 @@ describe('projects store, on the desktop', () => {
     expect(await store.chooseLocation()).toBe('/elsewhere')
   })
 })
+
+/**
+ * The file changing underneath the editor (PLAN.md D7), which is the safety
+ * property this round rests on: **a `git checkout` must never be eaten by a
+ * debounced autosave that was already in flight.**
+ *
+ * Two halves, and they are deliberately different. Nothing unsaved → take the
+ * file and say so quietly, because that is the branch switch doing what it was
+ * asked to. Anything unsaved → ask, and write nothing until answered. Every
+ * case below asserts what is *on disk* afterwards, not only what the store
+ * thinks, because the version on disk is the one that would be lost.
+ */
+describe('the document changing on disk', () => {
+  /** A document open, saved, and known to be so. */
+  async function opened(name = 'Alpha') {
+    const store = useProjectsStore()
+    const project = (await store.create({ name, type: 'hires' }))!
+    await store.open(project.id)
+    return { store, project }
+  }
+
+  /** What a branch holding another version of the same file looks like. */
+  function theBranchVersion(name = 'From the branch') {
+    return createProject({ name, type: 'hires' })
+  }
+
+  it('reloads in place when nothing here is unsaved', async () => {
+    const { store } = await opened()
+    const theirs = theBranchVersion()
+    main.changeOnDisk(serializeProject(theirs))
+
+    expect((await store.documentChangedOnDisk('modified'))?.id).toBe(theirs.id)
+    expect(store.current?.id).toBe(theirs.id)
+    expect(store.saveState).toBe('saved')
+    // Quiet: a note, not a question.
+    expect(store.documentConflict).toBeNull()
+    expect(store.lastNotice).toBe('Reloaded from disk.')
+  })
+
+  it('asks, and writes nothing, when there is an unsaved edit', async () => {
+    vi.useFakeTimers()
+    const { store } = await opened()
+    store.current!.name = 'Alpha edited'
+    store.markDirty()
+
+    const theirs = theBranchVersion()
+    main.changeOnDisk(serializeProject(theirs))
+    expect(await store.documentChangedOnDisk('modified')).toBeNull()
+    expect(store.documentConflict).toBe('modified')
+
+    // The debounce that was in flight lands on the guard and is refused: the
+    // checkout is still there, whole. This is the case the round exists for.
+    await vi.advanceTimersByTimeAsync(600)
+    expect(main.document?.text).toBe(serializeProject(theirs))
+    expect(main.writes).toEqual([])
+  })
+
+  it('takes the file when the reload is chosen, discarding the edit', async () => {
+    vi.useFakeTimers()
+    const { store } = await opened()
+    store.current!.name = 'Alpha edited'
+    store.markDirty()
+    const theirs = theBranchVersion()
+    main.changeOnDisk(serializeProject(theirs))
+    await store.documentChangedOnDisk('modified')
+
+    expect((await store.reloadDocument())?.id).toBe(theirs.id)
+    expect(store.current?.name).toBe('From the branch')
+    expect(store.saveState).toBe('saved')
+    expect(store.documentConflict).toBeNull()
+
+    // The discarded edit had a write scheduled. It must not arrive afterwards.
+    await vi.advanceTimersByTimeAsync(600)
+    expect(main.document?.text).toBe(serializeProject(theirs))
+  })
+
+  it('overwrites the file when this version is kept', async () => {
+    const { store } = await opened()
+    store.current!.name = 'Alpha edited'
+    store.markDirty()
+    main.changeOnDisk(serializeProject(theBranchVersion()))
+    await store.documentChangedOnDisk('modified')
+
+    expect(await store.overwriteDocument()).toBe(true)
+    expect(main.document?.text).toContain('Alpha edited')
+    expect(store.saveState).toBe('saved')
+    expect(store.documentConflict).toBeNull()
+  })
+
+  it('says why saving stopped when the question is waved away, and does not ask twice', async () => {
+    vi.useFakeTimers()
+    const { store } = await opened()
+    store.current!.name = 'Alpha edited'
+    store.markDirty()
+    main.changeOnDisk(serializeProject(theBranchVersion()))
+    await store.documentChangedOnDisk('modified')
+
+    store.dismissConflict()
+    expect(store.documentConflict).toBeNull()
+    expect(store.lastError).toContain('Saving is paused')
+    expect(store.saveState).toBe('unsaved')
+
+    // Editing on carries on being refused — but the dialog does not come back
+    // every 500 ms to say so.
+    store.current!.name = 'Alpha edited again'
+    store.markDirty()
+    await vi.advanceTimersByTimeAsync(600)
+    expect(store.documentConflict).toBeNull()
+    expect(store.lastError).toContain('Saving is paused')
+    expect(main.writes).toEqual([])
+  })
+
+  it('asks again when the file changes a second time', async () => {
+    const { store } = await opened()
+    store.current!.name = 'Alpha edited'
+    store.markDirty()
+    main.changeOnDisk(serializeProject(theBranchVersion('Branch A')))
+    await store.documentChangedOnDisk('modified')
+    store.dismissConflict()
+
+    main.changeOnDisk(serializeProject(theBranchVersion('Branch B')))
+    await store.documentChangedOnDisk('modified')
+    expect(store.documentConflict).toBe('modified')
+  })
+
+  it('says a deleted document is gone rather than recreating it', async () => {
+    vi.useFakeTimers()
+    const { store } = await opened()
+    main.deleteOnDisk()
+
+    // Even with nothing unsaved: there is nothing to reload, and putting the
+    // file back is a decision only the user can take.
+    expect(await store.documentChangedOnDisk('deleted')).toBeNull()
+    expect(store.documentConflict).toBe('deleted')
+
+    store.current!.name = 'Alpha edited'
+    store.markDirty()
+    await vi.advanceTimersByTimeAsync(600)
+    expect(main.document?.text).toBe('')
+    expect(main.writes).toEqual([])
+  })
+
+  it('puts a deleted document back when that is what is asked for', async () => {
+    const { store, project } = await opened()
+    main.deleteOnDisk()
+    await store.documentChangedOnDisk('deleted')
+
+    expect(await store.overwriteDocument()).toBe(true)
+    expect(main.document?.text).toContain(project.name)
+    expect(store.documentConflict).toBeNull()
+  })
+
+  it('raises the conflict from a refused save, even before it was announced', async () => {
+    // The watcher and the focus check can both be beaten by a save that was
+    // already on its way; the guard is what actually stops it (D6).
+    const { store } = await opened()
+    main.changeOnDisk(serializeProject(theBranchVersion()))
+
+    store.current!.name = 'Alpha edited'
+    expect(await store.saveCurrent()).toBe(false)
+    expect(store.documentConflict).toBe('modified')
+    expect(store.saveState).toBe('unsaved')
+  })
+
+  it('leaves the question behind when another document is opened', async () => {
+    const { store } = await opened()
+    store.current!.name = 'Alpha edited'
+    store.markDirty()
+    main.changeOnDisk(serializeProject(theBranchVersion()))
+    await store.documentChangedOnDisk('modified')
+
+    const second = createProject({ name: 'Beta', type: 'hires' })
+    main.arrive('Beta', serializeProject(second))
+    expect((await store.takePendingDocument())?.id).toBe(second.id)
+    expect(store.documentConflict).toBeNull()
+  })
+
+  it('ignores an announcement when no document is open', async () => {
+    const store = useProjectsStore()
+    expect(await store.documentChangedOnDisk('modified')).toBeNull()
+    expect(store.documentConflict).toBeNull()
+  })
+})

@@ -12,6 +12,11 @@
  *   `null` exactly as a missing project does in the browser.
  * - **`save(project)` names no file.** It hands main the serialized text and
  *   main writes whatever it has open, atomically (D6).
+ * - **A save can be *refused*.** Main holds the stamp the file had when the app
+ *   last touched it, and will not write over a file that no longer matches —
+ *   the `git checkout` case this whole round rests on (D6). That comes back as
+ *   `DocumentConflictError`, and `reloadDocument` and `overwrite` are the two
+ *   answers to it (D7).
  * - **Opening is a request, not a call that returns a document.** Every way a
  *   document can arrive — a double-click, a drop, Open Recent, the dialog, the
  *   last document at launch — ends in `takePending` (D15), so there is one
@@ -27,7 +32,7 @@
 import type { Project } from '@/domain/types'
 import { deserializeProject, serializeProject } from '@/domain/serialization'
 import { desktop } from '@/utils/desktop'
-import { DocumentError, type DocumentStore } from './store'
+import { DocumentConflictError, DocumentError, type DocumentStore } from './store'
 import type { AppApi } from '@shared/api'
 import type { DocumentResult, RecentDocument } from '@shared/document'
 
@@ -59,6 +64,19 @@ export function createDocumentStore(api: DocumentApi = bridge()): DocumentStore 
   /** The open document's name, refreshed by every call that reads or writes one. */
   let name: string | null = null
 
+  /**
+   * Write the project through, guarded or not (D6, D7).
+   *
+   * A refusal comes back as `conflict` rather than as an error, and is thrown
+   * as one: the Pinia store tells the two apart, because one of them is a
+   * question for the user and the other is a banner.
+   */
+  async function put(project: Project, force: boolean): Promise<void> {
+    const result = await api.write(serializeProject(project), force)
+    if (result.status === 'conflict') throw new DocumentConflictError(result.change)
+    unwrap(result)
+  }
+
   /** Adopt what main answered with, remembering its name for the header. */
   function take(document: { name: string; text: string } | null): Project | null {
     name = document?.name ?? null
@@ -84,7 +102,15 @@ export function createDocumentStore(api: DocumentApi = bridge()): DocumentStore 
     },
 
     async save(project: Project): Promise<void> {
-      unwrap(await api.write(serializeProject(project)))
+      await put(project, false)
+    },
+
+    async overwrite(project: Project): Promise<void> {
+      await put(project, true)
+    },
+
+    async reloadDocument(): Promise<Project | null> {
+      return take(unwrap(await api.current()))
     },
 
     async createDocument(project: Project): Promise<Project | null> {

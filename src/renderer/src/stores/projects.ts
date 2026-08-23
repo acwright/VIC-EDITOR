@@ -39,9 +39,14 @@ import { encodeShare, shareUrl } from '@/domain/share'
 import { StorageQuotaError, type ProjectSummary } from '@/persistence/repository'
 import { createBrowserStore } from '@/persistence/browserStore'
 import { createDocumentStore } from '@/persistence/documentStore'
-import { DocumentError, type DocumentStore, type ProjectLibrary } from '@/persistence/store'
+import {
+  DocumentConflictError,
+  DocumentError,
+  type DocumentStore,
+  type ProjectLibrary,
+} from '@/persistence/store'
 import { isDesktop } from '@/utils/desktop'
-import type { RecentDocument } from '@shared/document'
+import type { DocumentChange, RecentDocument } from '@shared/document'
 
 export type SaveState = 'saved' | 'saving' | 'unsaved'
 
@@ -72,6 +77,20 @@ export const useProjectsStore = defineStore('projects', () => {
   const saveState = ref<SaveState>('saved')
   /** Latest storage/validation failure, for the manager view's error banner. */
   const lastError = ref<string | null>(null)
+  /**
+   * Something happened that is worth saying and is not a failure — a document
+   * reloaded from disk, so far (D7). Quiet by design: it is the app reporting
+   * that it did the obvious thing, not asking for anything.
+   */
+  const lastNotice = ref<string | null>(null)
+  /**
+   * The external change waiting on an answer (D7), or null.
+   *
+   * Set when the file changed and taking it would cost something — an unsaved
+   * edit, or a file that is no longer there to take. `App.vue` renders the
+   * dialog; the three actions below are the ways out of it.
+   */
+  const documentConflict = ref<DocumentChange | null>(null)
 
   let autosaveTimer: ReturnType<typeof setTimeout> | undefined
   /** The tail of the save chain; every save queues behind it (see the header). */
@@ -85,6 +104,16 @@ export const useProjectsStore = defineStore('projects', () => {
    * shows nothing, and one that moves only when the project does.
    */
   let storedHash: string | null = null
+  /**
+   * A conflict the user waved away, so the same one is not asked twice.
+   *
+   * Without it, dismissing the dialog and carrying on editing would re-raise it
+   * on every autosave tick — the guard refuses every write until the conflict
+   * is actually resolved. The banner still says why saving has stopped; only
+   * the dialog is suppressed, and only until the next thing that changes the
+   * situation.
+   */
+  let dismissedConflict: DocumentChange | null = null
 
   async function refresh(): Promise<void> {
     // The desktop has no list to refresh: the OS is the project list (§4).
@@ -92,13 +121,27 @@ export const useProjectsStore = defineStore('projects', () => {
     summaries.value = await library.list()
   }
 
-  /** Persist a project; on failure record the error and report false. */
-  async function persist(project: Project): Promise<boolean> {
+  /**
+   * Persist a project; on failure record the error and report false.
+   *
+   * `force` is the desktop's answer to a conflict and nothing else (D7): it
+   * goes through `overwrite`, which is the one call that writes over a file the
+   * app did not last write.
+   */
+  async function persist(project: Project, force = false): Promise<boolean> {
     try {
-      await adapter.save(project)
+      if (force && documents) await documents.overwrite(project)
+      else await adapter.save(project)
       lastError.value = null
+      dismissedConflict = null
       return true
     } catch (error) {
+      // A refused write is a question, not a failure: the file moved and only
+      // the user can say which version wins (D6, D7).
+      if (error instanceof DocumentConflictError) {
+        raiseConflict(error.change)
+        return false
+      }
       lastError.value = failureMessage(error, 'Saving the project failed.')
       return false
     }
@@ -199,10 +242,146 @@ export const useProjectsStore = defineStore('projects', () => {
     }
     documentName.value = documents.name
     if (!project || token !== openToken) return project
+    forgetConflict()
     current.value = project
     storedHash = projectContentHash(project)
     saveState.value = 'saved'
     return project
+  }
+
+  // --- The file changing underneath us (D7) ---
+
+  /** A different document is on screen; the last one's question is not its. */
+  function forgetConflict(): void {
+    documentConflict.value = null
+    dismissedConflict = null
+    lastNotice.value = null
+  }
+
+  /** The open document's name as it reads in a sentence. */
+  function documentLabel(): string {
+    return documentName.value ? `"${documentName.value}"` : 'The document'
+  }
+
+  /** Why saving has stopped, for the banner behind a dismissed conflict. */
+  function pausedMessage(change: DocumentChange): string {
+    return change === 'deleted'
+      ? `Saving is paused: ${documentLabel()} is no longer on disk.`
+      : `Saving is paused: ${documentLabel()} changed on disk.`
+  }
+
+  /**
+   * Whether the editor is holding something the file does not have.
+   *
+   * Three ways it can be: a debounce that has not fired, an indicator that says
+   * so, or — the one worth checking explicitly — a project whose content no
+   * longer hashes to what was last written (D5). This decides whether an
+   * external change can simply be taken.
+   */
+  function hasUnsavedEdits(): boolean {
+    if (!current.value) return false
+    if (autosaveTimer !== undefined || saveState.value !== 'saved') return true
+    return storedHash !== null && projectContentHash(current.value) !== storedHash
+  }
+
+  /** Put the question, unless it is the one the user already waved away. */
+  function raiseConflict(change: DocumentChange): void {
+    if (documentConflict.value === change) return
+    if (dismissedConflict === change) {
+      lastError.value = pausedMessage(change)
+      return
+    }
+    lastError.value = null
+    // A question about the file replaces whatever quiet note was on screen —
+    // "Reloaded from disk" above a conflict dialog describes a state that has
+    // already been overtaken.
+    lastNotice.value = null
+    documentConflict.value = change
+  }
+
+  /**
+   * The open document changed on disk (D7).
+   *
+   * The whole decision is here, and it is the safety property the round rests
+   * on. **Clean and merely changed** → take the file, quietly: that is a `git
+   * checkout` doing what the user asked for, and the editor following it. **Any
+   * unsaved edit, or a file that is gone** → ask, because either answer costs
+   * something and only the user can weigh them.
+   *
+   * Nothing is written here either way. Main is already refusing writes to the
+   * changed file, so the edit in memory cannot leak onto it while the question
+   * is open.
+   */
+  async function documentChangedOnDisk(change: DocumentChange): Promise<Project | null> {
+    if (!documents || !current.value) return null
+    // A fresh announcement: whatever was waved away was about the state before
+    // this one, so the question is worth asking again.
+    dismissedConflict = null
+    if (change === 'modified' && !hasUnsavedEdits()) return await reloadDocument()
+    raiseConflict(change)
+    return null
+  }
+
+  /**
+   * Take what is on disk, discarding whatever the editor was holding (D7).
+   *
+   * The `clearTimeout` is the load-bearing line: the edit being discarded may
+   * have a debounced write scheduled, and letting that fire after the reload
+   * would put the discarded version straight back onto the file.
+   */
+  async function reloadDocument(): Promise<Project | null> {
+    if (!documents) return null
+    const token = ++openToken
+    clearTimeout(autosaveTimer)
+    autosaveTimer = undefined
+    documentConflict.value = null
+    dismissedConflict = null
+    let project: Project | null
+    try {
+      project = await documents.reloadDocument()
+      lastError.value = null
+    } catch (error) {
+      lastError.value = failureMessage(error, 'That document could not be reopened.')
+      return null
+    }
+    documentName.value = documents.name
+    if (!project || token !== openToken) return project
+    current.value = project
+    storedHash = projectContentHash(project)
+    saveState.value = 'saved'
+    lastNotice.value = 'Reloaded from disk.'
+    return project
+  }
+
+  /**
+   * Keep what is in the editor, and write it over the file (D7).
+   *
+   * The other answer to the same question, and the one that costs the version
+   * on disk — the dialog says so before this runs. For a document that was
+   * deleted it is "put it back", which is also the only way an autosave tick is
+   * ever allowed to recreate a file the user removed.
+   */
+  async function overwriteDocument(): Promise<boolean> {
+    if (!documents || !current.value) return false
+    documentConflict.value = null
+    dismissedConflict = null
+    return await saveCurrent(true)
+  }
+
+  /** Neither answer, for now. The banner keeps saying why saving has stopped. */
+  function dismissConflict(): void {
+    const change = documentConflict.value
+    if (!change) return
+    documentConflict.value = null
+    dismissedConflict = change
+    // Nothing was written and nothing will be until this is answered, so the
+    // indicator must stop claiming otherwise.
+    saveState.value = 'unsaved'
+    lastError.value = pausedMessage(change)
+  }
+
+  function dismissNotice(): void {
+    lastNotice.value = null
   }
 
   /** Where a new document would go, for the New dialog's location row (D10). */
@@ -232,6 +411,7 @@ export const useProjectsStore = defineStore('projects', () => {
     // document is called what its *file* is called.
     if (documents) documentName.value = documents.name
     if (token !== openToken) return project // a newer open won; leave its result standing
+    forgetConflict()
     current.value = project
     storedHash = project ? projectContentHash(project) : null
     saveState.value = 'saved'
@@ -242,6 +422,7 @@ export const useProjectsStore = defineStore('projects', () => {
     const token = ++openToken
     await flushAutosave()
     if (token !== openToken) return
+    forgetConflict()
     current.value = null
     storedHash = null
     saveState.value = 'saved'
@@ -367,28 +548,37 @@ export const useProjectsStore = defineStore('projects', () => {
     autosaveTimer = setTimeout(() => void saveCurrent(), AUTOSAVE_DELAY_MS)
   }
 
-  /** Save the open project immediately (Ctrl/Cmd+S, close, tab hide). */
-  function saveCurrent(): Promise<boolean> {
+  /**
+   * Save the open project immediately (Ctrl/Cmd+S, close, tab hide).
+   *
+   * `force` is D7's "keep my version" and is never set by the app itself:
+   * `overwriteDocument` is its only caller, and it writes over a file that
+   * changed underneath us.
+   */
+  function saveCurrent(force = false): Promise<boolean> {
     clearTimeout(autosaveTimer)
     autosaveTimer = undefined
+    const write = (): Promise<boolean> => writeCurrent(force)
     // Queue behind any save still in flight rather than interleaving writes.
-    saveChain = saveChain.then(writeCurrent, writeCurrent)
+    saveChain = saveChain.then(write, write)
     return saveChain
   }
 
-  async function writeCurrent(): Promise<boolean> {
+  async function writeCurrent(force = false): Promise<boolean> {
     const project = current.value
     if (!project) return true
     // D5: nothing to write, so nothing is written — and `modifiedAt` is not
-    // stamped, because it moves only when content moves.
+    // stamped, because it moves only when content moves. A forced write skips
+    // this: the file on disk is *not* what the hash describes, which is the
+    // whole reason it is being forced.
     const hash = projectContentHash(project)
-    if (hash === storedHash) {
+    if (!force && hash === storedHash) {
       if (current.value === project) saveState.value = 'saved'
       return true
     }
     saveState.value = 'saving'
     project.modifiedAt = new Date().toISOString()
-    const ok = await persist(project)
+    const ok = await persist(project, force)
     if (ok) storedHash = hash
     // A save that finished after the project was closed or replaced must not
     // relabel the indicator for whatever is on screen now.
@@ -420,6 +610,8 @@ export const useProjectsStore = defineStore('projects', () => {
     documentName,
     saveState,
     lastError,
+    lastNotice,
+    documentConflict,
     refresh,
     create,
     createFrom,
@@ -429,6 +621,11 @@ export const useProjectsStore = defineStore('projects', () => {
     openRecentDocument,
     recentDocuments,
     takePendingDocument,
+    documentChangedOnDisk,
+    reloadDocument,
+    overwriteDocument,
+    dismissConflict,
+    dismissNotice,
     defaultLocation,
     chooseLocation,
     close,

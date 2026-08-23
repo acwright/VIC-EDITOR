@@ -21,7 +21,18 @@ persistence design — so this is one plan with a table of the handful of values
 
 ## Current Status
 
-- **Status: Phase F4 is complete.** The operating system opens the editor. A
+- **Status: Phase F5 is complete.** The editor lives in a git worktree without
+  fighting it. A `git checkout` under a clean document reloads it in place and
+  says so quietly; one under an unsaved edit asks, naming both versions, and
+  writes nothing until it is answered. Every write states the stamp it expects
+  and main refuses the ones whose file has moved (D6) — measured against a real
+  repository, with the autosave firing 500 ms into a branch switch and the
+  checkout still whole afterwards. A file deleted behind the app's back is
+  reported rather than silently recreated. Detection is S3's: a non-recursive
+  watch on the document's *directory*, plus a `stat` on focus. Not yet done
+  here: the migration (F6) — a `v1.6` desktop user's projects are still only in
+  browser storage until then — and the desktop wording and File menu (F7).
+- Phase F4 before it made the operating system open the editor. A
   `.tms9918` file carries its own icon, its own named type, and a double-click
   launches straight into it — cold, or into the app already running. Every way a
   document can arrive is one path (D15): `open-file`, `argv`, `second-instance`,
@@ -29,9 +40,7 @@ persistence design — so this is one plan with a table of the handful of values
   `openRequests.ts`, which announces rather than adopts. The renderer flushes
   what it holds into the *old* file and only then takes the new one, which is
   what D17 actually is. Recents are in the File menu and on the start screen
-  (D16), and quitting with a document open returns to it (D11). Not yet done
-  here: external-change handling (F5) and the migration (F6) — a `v1.6` desktop
-  user's projects are still only in browser storage until then.
+  (D16), and quitting with a document open returns to it (D11).
 - Phase F3 before it made the desktop app open, edit and save a *file*.
   `src/main/document.ts` owns the open document — atomic writes, a stamp on every
   read and write, and the renderer never naming a path (D6, D8). `documentStore.ts`
@@ -595,6 +604,7 @@ src/
 ├── main/
 │   ├── document.ts         new   read/write/stat the open document: atomic, stamped
 │   ├── documentFile.ts     new   the file mechanics, with no Electron in them
+│   ├── documentWatch.ts    new   the directory watch that sees a `git checkout` (D7, S3)
 │   ├── openRequests.ts     new   open-file, argv, second-instance, drop → one message (D15)
 │   ├── recent.ts           new   recent documents in userData (D16)
 │   ├── windowState.ts            + the last document's path (D11)
@@ -617,6 +627,8 @@ src/
     │   ├── serialization.ts      the git-first formatter (D4)
     │   └── share.ts              share links rooted at the web app (D21)
     ├── stores/projects.ts        async throughout; open/save/rename return promises
+    ├── components/projects/
+    │   └── DocumentConflictDialog.vue  new  the two answers to a changed file (D7)
     ├── views/
     │   ├── StartView.vue   new   the desktop launcher (D12)
     │   ├── ProjectManagerView.vue  untouched — the web build's home
@@ -625,7 +637,8 @@ src/
     ├── router/index.ts           the home route picked from isDesktop() (D13)
     ├── utils/shortcuts.ts        `back` → Close Document on the desktop (D14)
     ├── testing/documentBridge.ts new  one fake of main, for the three specs that need it
-    ├── utils/documents.ts  new   external-change handling and the conflict prompt (D7)
+    ├── utils/documents.ts  — not written: external-change handling lives in the
+    │                             store and the dialog above, not in a util (D7)
     └── utils/strings.ts    new   the words that differ per shell
 ```
 
@@ -1016,20 +1029,92 @@ What F4 settled, for the phases that inherit it:
 
 **Goal:** switching branches under the editor does the right thing, in both directions.
 
-- [ ] Detection per S3: focus + `stat` always; a non-recursive `fs.watch` on the document's
+- [x] Detection per S3: focus + `stat` always; a non-recursive `fs.watch` on the document's
       **directory**, filtered by basename — a watch on the file itself is single-shot and
       dies at the first `git checkout`
-- [ ] The stamp guard on every write, and the conflict answer it returns (D6)
-- [ ] Clean document + changed file → reload in place, with a quiet "Reloaded from disk"
-- [ ] Dirty document + changed file → a dialog naming both sides; taking the file discards
+- [x] The stamp guard on every write, and the conflict answer it returns (D6)
+- [x] Clean document + changed file → reload in place, with a quiet "Reloaded from disk"
+- [x] Dirty document + changed file → a dialog naming both sides; taking the file discards
       the edit, and the dialog says so
-- [ ] Deleted or moved file → the editor says so rather than silently recreating it on the
+- [x] Deleted or moved file → the editor says so rather than silently recreating it on the
       next autosave tick
 
-**Exit criteria, verified against a real repository:** a `git checkout` of a branch where the
-open document differs reloads the editor with the branch's version; the same with an unsaved
-edit in flight prompts and never writes over the checkout; `git stash`, `git checkout .` and
-deleting the file behind the app's back all behave.
+**Exit criteria: met, and measured against a real repository.** Both repos: full suite green
+(TMS9918 685, VIC-20 775), `oxlint`, `eslint`, `vue-tsc --build`, `npm run build` and
+`npm run build:web` all green.
+
+**Verified in the running desktop app**, the standard `CLAUDE.md` sets — the built app over
+CDP against a throwaway profile, driving a real `git` in a real worktree whose two branches
+hold different versions of the open document. The list was run in **TMS9918**; the **VIC-20**
+app was then driven for the clean reload, the dirty prompt, the dialog's *Reload from Disk*
+and the deletion, and behaved identically. The two repos' F5 code is the same lines apart
+from names.
+
+- **A `git checkout` under a clean document reloaded it in place**: the editor went from the
+  main branch's project to the branch's, and said `Reloaded from disk.` The app was in the
+  *background* throughout, so this is the directory watcher, not the focus check.
+- **The same checkout with an unsaved edit in flight prompted, and wrote nothing.** A fill was
+  dispatched and `git checkout` landed 16 ms later, inside the 500 ms autosave window. The
+  debounced write fired, hit the guard and was refused: `git status --porcelain` was **empty**
+  afterwards — the checkout was still on disk, whole — and the dialog named both sides.
+- **Both answers were driven through the real dialog.** *Reload from Disk* took the branch's
+  version and left the worktree clean; *Keep My Version* wrote the editor's version over it
+  (`git diff --numstat` = `2 2`, the name and `modifiedAt`) and left no `.tmp` behind.
+- **`git stash` and `git checkout .` both reloaded in place**, the second after the app's own
+  save had made the worktree dirty — and the app's own write produced no "Reloaded from disk"
+  of its own, which is the stamp being re-held rather than compared against itself.
+- **Deleting the file behind the app's back said so and recreated nothing**: the *Document
+  Deleted* dialog appeared, and an edit made afterwards — with the dialog dismissed — was
+  refused with `Saving is paused: "…" is no longer on disk.` and left no file. *Save It Again*
+  put it back.
+- **A whole-directory swap was still caught** (`mv repo repo.old && cp -R`), because FSEvents
+  watches by path.
+
+**What was not isolated, and is not claimed:** the **focus + `stat`** half. It ships and is
+wired to the window's `focus`, but on macOS the directory watcher noticed every change first —
+including with the window hidden and including the directory swap above — so no case was
+constructed in which focus was the thing that saw it. That matches S3's shape (focus is the
+fallback that always works; the watcher is the prompt one), but it means the focus path was
+exercised only by the unit-level checks and by reading. Windows and Linux remain unmeasured
+here, as they were in F4.
+
+What F5 settled, for the phases that inherit it:
+
+- **The guard lives in main and needs nothing from the renderer.** D6 says "every write
+  carries the stamp it expects"; the honest shape is that *main* carries it — it holds the
+  stamp from the last read or write and compares before every write. The renderer never sees
+  a stamp, which keeps the preload surface as narrow as D8 wants it and means no caller can
+  forget to pass one.
+- **A refused write is a fourth answer, not an error.** `DocumentWriteResult` adds
+  `conflict`, and only to writes: collapsing it into `error` would have put a disk failure
+  and "the file changed" in the same banner, and they need different endings. It crosses the
+  renderer as `DocumentConflictError`, which is what the Pinia store catches to raise the
+  question instead of the banner.
+- **Three things detect a change and they all end in one place.** The directory watcher, the
+  focus check and the guard on the write path all reduce to `externalChange()` + `announce()`,
+  which is deduplicated by the stamp it announced for. A change can therefore be noticed twice
+  without being *asked* about twice.
+- **The dialog has no "cancel", only two answers and a deferral.** Reload takes the file;
+  Keep My Version overwrites it; Escape defers, and because the guard keeps refusing until
+  the conflict is resolved, deferring has to say so — the banner reads *Saving is paused* and
+  the same question is not asked again until the file changes anew.
+- **A reload must cancel the debounce.** The edit being discarded usually has a write already
+  scheduled; without the `clearTimeout` in `reloadDocument` it lands 500 ms later and puts the
+  discarded version straight back. Both specs and the running app cover this.
+- **`EditorView` watches the *project*, not the route id.** A reload replaces the project
+  under an unchanged `/edit/<id>`, and an undo stack describing the version that was just
+  discarded is worse than none — so `editor.reset()` hangs off the project's identity now.
+  This also fixes a smaller F4 case: a document arriving with the same id as the open route.
+- **`fs.watch` replays.** A watch armed on a directory is handed the events that happened in
+  it moments before, so opening a document immediately produces one for the read that just
+  happened. Harmless — an event is only ever a reason to re-`stat` — but a spec that does not
+  wait for it is asserting on its own fixture, which is why `documentWatch.spec.ts` arms and
+  settles before it measures.
+- **A harness fact worth keeping: a hidden window does not fire `<dialog>`'s `close` event.**
+  Chromium withholds it while `document.visibilityState` is `hidden`, so an Escape-dismisses
+  check run against a background window reads as an app bug and is not one. Activate the app
+  (`System Events`, `process "Electron"`) before driving any dialog. Everything else measured
+  here worked with the window in the background.
 
 ### Phase F6 — Migration and first run
 
