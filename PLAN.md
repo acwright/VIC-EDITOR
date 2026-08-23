@@ -1315,6 +1315,27 @@ What was measured in the packaged `2.0.0` binaries, not read from source:
   type, a `.desktop` entry with the matching `MimeType=` and `Exec … %U`, and the ALSA
   dependency the default list omits.
 
+**What the push found: the stamp's mtime assumption is APFS's, not every filesystem's.**
+F1–F7 had never run on CI — `main` was still at the pre-F1 commit — so the first push of this
+round was the first time `documentFile.spec.ts` ran anywhere but a Mac, and one test failed in
+both repos. *"Moves the stamp when the same-length text is written again"* asserted that two
+back-to-back same-length writes get distinct mtimes. That is S3's measurement on APFS, and it
+is **a property of the filesystem rather than of this code**: the GitHub runner's timestamp
+moves once a clock tick, so both writes came back with the same `mtimeMs` to four decimal
+places. The test now measures the filesystem's resolution first — several rounds, all of which
+must separate, so a single pair straddling a tick cannot claim more than the clock offers —
+and asserts the strict claim only where it holds, plus what `writeDocumentAt` itself promises
+everywhere: the stamp it returns is the file's own, and it never goes backwards.
+
+**The product consequence is real but narrow, and is the one §6 already named.** Where mtime
+does not resolve two writes, a `{ mtimeMs, size }` stamp cannot tell apart a same-length file
+swapped in within the same tick as our own last write — so D6's guard is weaker on such a
+filesystem than it is on APFS. A checkout arriving inside one tick of an autosave is not a
+case that occurs in use, and every wider gap is caught. The fix if it is ever wanted is the
+one §6 states: a content hash in the stamp. It is not taken now, because it would be a change
+to shipped behaviour made after the release rather than a measured one, and it belongs in
+§12 with the rest of the deferred work.
+
 **What is not verified, and why.** *Editing and saving in the packaged binary* was driven
 only as far as opening: the machine's owner was working in another app throughout and the
 GUI could not be driven further without taking the screen from them. The save path is what
@@ -1359,6 +1380,13 @@ Considered and out of scope, so it is clear they were not overlooked:
   adapter.
 - **File → Open Folder**, opening the first document in a directory. This is where the
   rejected workspace shapes start to creep back in; worth resisting unless asked for.
+- **A content hash in the document stamp.** `{ mtimeMs, size }` is enough on APFS, where it
+  was measured (S3), and it is not enough on a filesystem whose timestamp moves once a clock
+  tick — the CI runner's is one, which is how this surfaced (F8). Hashing the bytes on read
+  and write would make D6's guard independent of the clock. Deferred rather than done: the
+  gap it closes is a checkout landing inside one tick of an autosave, and the cost is a hash
+  over the whole document on every stamp, which is the thing §5 measured the write budget
+  against.
 - **A merge driver or `.gitattributes` guidance** for project files. Conflicts in a 2000-line
   charset are readable with D4's format but not mergeable.
 - **Export every project in a directory as assembly** — the obvious next thing to want from a
