@@ -568,7 +568,9 @@ unchanged: **no component branches on the shell.**
 predicate beside its existing mode predicate, `src/shared/menu.ts` gets the new wording, and
 `menu.spec.ts` covers both. Keys stay entirely the renderer's job, as they have been since
 the shell shipped — menu items that dispatch an action carry no accelerator, because an
-accelerator fires the item *and* still delivers the keydown to the page.
+accelerator fires the item *and* still delivers the keydown to the page. *(Amended after
+`v2.0.0`: File ▸ Save prints ⌘S, the one place where firing twice and firing into a text
+field are both harmless. The rule and its exception are in `CLAUDE.md`.)*
 
 **D15 — Every way a document can arrive is one code path.** macOS `open-file` (queued if it
 beats the window, S2), Windows and Linux `argv` on first launch, `second-instance` argv while

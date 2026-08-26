@@ -17,7 +17,7 @@
 import { SAMPLES } from '@/samples'
 import { MENU_ACTIONS, type MenuContext, type MenuSample } from '@shared/menu'
 import { desktop } from './desktop'
-import { MANAGER_SHORTCUTS, editorActions, shell } from './shortcuts'
+import { MANAGER_SHORTCUTS, editorActions, menuAccelerators, shell } from './shortcuts'
 
 /**
  * Every menu title. Nothing here varies by mode, so the only question is which
@@ -65,6 +65,7 @@ export function editorMenuContext(): MenuContext {
   return {
     enabled: [...editorActions(), 'newProject', 'saveCopy'],
     labels: labels(),
+    accelerators: menuAccelerators(),
     samples: menuSamples(),
   }
 }
@@ -74,6 +75,7 @@ export function managerMenuContext(): MenuContext {
   return {
     enabled: MANAGER_SHORTCUTS.map((entry) => entry.action),
     labels: labels(),
+    accelerators: menuAccelerators(),
     samples: menuSamples(),
   }
 }

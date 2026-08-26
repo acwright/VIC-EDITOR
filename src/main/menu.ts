@@ -75,7 +75,11 @@ function actionItems(
     // A leading separator would draw a rule against the top of the menu.
     if (entry.separatorBefore && items.length > 0) items.push({ type: 'separator' })
     items.push({
+      // Accelerators are the exception and not the rule (see `shared/menu.ts`);
+      // the renderer names the few items that have one, so an item with no
+      // entry here prints no key, which is nearly all of them.
       label: context.labels[entry.action] ?? entry.label,
+      accelerator: context.accelerators[entry.action],
       enabled: context.enabled.includes(entry.action),
       click: () => send(entry.action),
     })

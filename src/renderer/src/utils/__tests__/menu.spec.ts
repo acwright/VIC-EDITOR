@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { MENU_ACTIONS, MENU_COMMANDS, sampleAction, sampleFromAction } from '@shared/menu'
 import { SAMPLES } from '@/samples'
 import { actionLabel, editorMenuContext, managerMenuContext } from '../menu'
-import { EDITOR_SHORTCUTS, MANAGER_SHORTCUTS, describeShortcut } from '../shortcuts'
+import { EDITOR_SHORTCUTS, MANAGER_SHORTCUTS, accelerator, describeShortcut } from '../shortcuts'
 
 /**
  * Pretend the preload bridge is there, which is the only thing that makes
@@ -109,9 +109,9 @@ describe('the menu table', () => {
     for (const command of MENU_COMMANDS) expect(ACTIONS).not.toContain(command)
   })
 
-  // The help sheet's descriptions are sentences ("Save now", "Fill the
-  // character"); a menu title is not. Menu labels are written separately for
-  // that reason, so this is what keeps them honest.
+  // The help sheet's descriptions are sentences ("Keyboard shortcuts", "Fill
+  // the character"); a menu title is not. Menu labels are written separately
+  // for that reason, so this is what keeps them honest.
   it('titles every item the way a native menu does', () => {
     // Collected rather than asserted one by one, so a failure names every
     // label that needs rewording instead of only the first.
@@ -231,5 +231,51 @@ describe('sample menu actions', () => {
 
   it('leaves every other action alone', () => {
     for (const entry of MENU_ACTIONS) expect(sampleFromAction(entry.action)).toBeNull()
+  })
+})
+
+/**
+ * The accelerator exception (D11).
+ *
+ * The rule is a *policy* — almost nothing prints a key, because an accelerated
+ * item runs its action twice — so what needs holding still is which items claim
+ * the exception and that the key they print is the key the page acts on. Both
+ * come off the shortcut map, and this is what stops a second one being added
+ * without the reasoning in `shortcuts.ts` being read first.
+ */
+describe('the keys the menu prints', () => {
+  it('prints one, and it is Save', () => {
+    const accelerators = editorMenuContext().accelerators
+    expect(Object.keys(accelerators)).toEqual(['save'])
+    expect(accelerators['save']).toBe('CmdOrCtrl+S')
+  })
+
+  it('prints the key the shortcut map binds, not a second spelling of it', () => {
+    for (const entry of EDITOR_SHORTCUTS.filter((item) => item.menuKey)) {
+      expect(editorMenuContext().accelerators[entry.action]).toBe(
+        accelerator(entry.keys[0] as string),
+      )
+    }
+  })
+
+  it('leaves every other item without one', () => {
+    const printed = new Set(Object.keys(editorMenuContext().accelerators))
+    for (const entry of EDITOR_SHORTCUTS.filter((item) => !item.menuKey)) {
+      expect(printed.has(entry.action)).toBe(false)
+    }
+  })
+
+  // Sent on the start screen too, where Save is greyed out. macOS draws the key
+  // on a disabled item, and an item whose accelerator came and went with the
+  // view would be one the muscle memory stopped trusting.
+  it('prints the same key on the start screen, where the item is disabled', () => {
+    expect(managerMenuContext().accelerators['save']).toBe('CmdOrCtrl+S')
+    expect(managerMenuContext().enabled).not.toContain('save')
+  })
+
+  it("spells Electron accelerators, not the help sheet's glyphs", () => {
+    expect(accelerator('Mod+S')).toBe('CmdOrCtrl+S')
+    expect(accelerator('Shift+Mod+Z')).toBe('Shift+CmdOrCtrl+Z')
+    expect(accelerator('Alt+Mod+ArrowUp')).toBe('CmdOrCtrl+Alt+ArrowUp')
   })
 })

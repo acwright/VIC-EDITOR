@@ -93,13 +93,22 @@ removed once the desktop shell shipped — and this is the short list of what no
 - **`electron-vite` is pinned exactly (`6.0.0-beta.1`), not caret-ranged.** It is the only
   release that supports Vite 8, and it is a beta — a silent bump is a real risk. Change it
   deliberately or not at all.
-- **Menu items that dispatch an action carry no accelerator.** An accelerator does *not*
-  take the key away from the page: the menu item fires *and* the renderer's `keydown`
-  fires, so the action would run twice on every press. `registerAccelerator: false` does
-  not suppress it either — both were measured. The keyboard is the renderer's job alone
-  (`src/renderer/src/utils/shortcuts.ts` is the single map); the menu is a click surface.
-  Items built from Electron **roles** — Copy, Reload, Quit, Toggle Full Screen — keep
-  their standard accelerators, because the editor's map binds none of those keys.
+- **Menu items that dispatch an action carry no accelerator, with one exception.** An
+  accelerator does *not* take the key away from the page: the menu item fires *and* the
+  renderer's `keydown` fires, so the action would run twice on every press.
+  `registerAccelerator: false` does not suppress it either — both were measured. The
+  keyboard is therefore the renderer's job (`src/renderer/src/utils/shortcuts.ts` is the
+  single map) and the menu is a click surface. Items built from Electron **roles** — Copy,
+  Reload, Quit, Toggle Full Screen — keep their standard accelerators, because the
+  editor's map binds none of those keys.
+  **File ▸ Save prints ⌘S**, because a File menu without it reads as a bug. It is safe
+  where the rule's two hazards are not hazards: a second `save` finds the content hash
+  unchanged and writes nothing, and ⌘S with a text field focused is Save in every app. A
+  shortcut opts in with `menuKey` in the map — the full rule for what may is in the field's
+  own comment — and the accelerator travels in the `MenuContext`, so main still spells no
+  key of its own. The renderer keeps handling the key, which is what makes this need no
+  per-platform measurement: fire the item and the second run is a no-op; print it without
+  firing and the page's keydown still does the work.
 - **Menu items are built from the shortcut map, not from a parallel command list.** The
   renderer runs the map's own mode predicate and sends main the live action ids *with*
   their wording for the open mode, so main never restates the question. Menu wording is

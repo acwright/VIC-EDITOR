@@ -16,20 +16,28 @@
  * shell it is; main is sent the answer.
  *
  * Labels are **menu titles, not the shortcut descriptions**: Title Case, and as
- * short as the surrounding menu allows, per the macOS HIG. "Save now" reads
- * correctly in the help sheet and wrongly in a File menu, so the two are worded
- * separately and `menu.spec.ts` checks the capitalisation. Inside the Brush and
+ * short as the surrounding menu allows, per the macOS HIG. "Fill the character"
+ * reads correctly in the help sheet and wrongly in an Edit menu, so the two are
+ * worded separately and `menu.spec.ts` checks the capitalisation. Inside the Brush and
  * Color Target submenus the submenu name carries the noun, so the items are
  * bare.
  *
- * **No item carries an accelerator, deliberately.** A registered accelerator
- * fires the menu item *and* still delivers the keydown to the page (§3.5), so
- * an accelerated menu item would run its action twice — and would run it while
+ * **Almost no item carries an accelerator, deliberately.** A registered
+ * accelerator fires the menu item *and* still delivers the keydown to the page
+ * (§3.5), so an accelerated menu item runs its action twice — and runs it while
  * the user is typing in a text field, which the renderer's key handler is
- * careful not to do. Keys stay entirely the renderer's job, exactly as on the
+ * careful not to do. Keys are therefore the renderer's job, exactly as on the
  * web; the menu is a click surface, and Help ▸ Keyboard shortcuts is where the
  * keys are advertised. Menu items built from Electron *roles* (Copy, Reload,
  * Quit) keep their standard accelerators — the editor's map binds none of them.
+ *
+ * The **one exception is Save**, because ⌘S missing from the File menu reads as
+ * a bug rather than as a policy. It is safe there and only there: a second
+ * `save` finds the content hash unchanged and writes nothing, and ⌘S inside a
+ * text field is Save in every app. The map decides — a shortcut carrying
+ * `menuKey` — and the accelerator arrives in the context below rather than
+ * being spelled here, so the key and the printed accelerator stay one
+ * statement. `shortcuts.ts` has the full rule for what may carry one.
  */
 
 /**
@@ -175,6 +183,13 @@ export interface MenuContext {
   /** Labels, keyed by action, as the view on screen words them. */
   labels: Readonly<Record<string, string>>
   /**
+   * The accelerator to print beside an item, keyed by action, in Electron's
+   * spelling — only the handful of keys the shortcut map marks `menuKey`, so
+   * most items appear here not at all. Main prints what it is given and spells
+   * nothing itself.
+   */
+  accelerators: Readonly<Record<string, string>>
+  /**
    * What *New from Sample ▸* offers (F7). The samples are bundled with the
    * renderer, so this is the same shape as the rest of this type: the renderer
    * answers, main renders the answer.
@@ -183,4 +198,9 @@ export interface MenuContext {
 }
 
 /** Nothing is live until the renderer says otherwise. */
-export const EMPTY_MENU_CONTEXT: MenuContext = { enabled: [], labels: {}, samples: [] }
+export const EMPTY_MENU_CONTEXT: MenuContext = {
+  enabled: [],
+  labels: {},
+  accelerators: {},
+  samples: [],
+}

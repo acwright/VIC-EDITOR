@@ -78,6 +78,31 @@ export interface Shortcut<A extends string = string> {
    * a *document* rather than on a list (D14).
    */
   desktopDescription?: string
+  /**
+   * Print this key on the desktop menu item as its accelerator.
+   *
+   * The default is *not* to, and the reason is measured: an accelerator fires
+   * the menu item **and** still delivers the keydown to the page, so an
+   * accelerated item runs its action twice — and runs it while a text field
+   * has focus, which this map's own handler is careful not to do (D11).
+   *
+   * A key may carry one only where both of those are harmless:
+   *
+   * - the action is **idempotent**, so running it twice is running it once;
+   * - the key **means nothing inside a text field**, so firing while one has
+   *   focus is what the user wanted anyway.
+   *
+   * `Mod+S` is the only key that clears both bars today — a second `save` finds
+   * the content hash unchanged and writes nothing, and ⌘S is Save in every text
+   * field there has ever been. `Mod+Z` fails the second: it is the field's own
+   * undo while one is focused. A bare letter fails both.
+   *
+   * The renderer keeps handling the key regardless. That is what makes this
+   * safe without a measurement per platform: if the accelerator fires the item,
+   * the action runs twice and the second run is a no-op; if it turns out only
+   * to be printed, the page's keydown is still there to do the work.
+   */
+  menuKey?: true
   /** Section heading, in `GROUP_ORDER`. */
   group: string
 }
@@ -92,7 +117,7 @@ export function describeShortcut(shortcut: Shortcut): string {
 export const EDITOR_SHORTCUTS: readonly Shortcut<EditorAction>[] = [
   { action: 'undo', keys: ['Mod+Z'], description: 'Undo', group: 'Project' },
   { action: 'redo', keys: ['Shift+Mod+Z'], description: 'Redo', group: 'Project' },
-  { action: 'save', keys: ['Mod+S'], description: 'Save now', group: 'Project' },
+  { action: 'save', keys: ['Mod+S'], description: 'Save', menuKey: true, group: 'Project' },
   { action: 'help', keys: ['?'], description: 'Keyboard shortcuts', group: 'Project' },
   {
     action: 'back',
@@ -329,6 +354,36 @@ export function keyLabel(token: string): string {
   if (alt) parts.push('Alt')
   parts.push(keyName(key))
   return parts.join('+')
+}
+
+/**
+ * A key token in Electron's accelerator spelling: `Shift+Mod+Z` →
+ * `Shift+CmdOrCtrl+Z`. Read only by the desktop menu, and only for the keys
+ * that declare `menuKey` — this is what keeps the accelerator printed in the
+ * File menu and the key the page acts on from being two separate statements.
+ */
+export function accelerator(token: string): string {
+  const { shift, mod, alt, key } = parseKey(token)
+  const parts: string[] = []
+  if (shift) parts.push('Shift')
+  if (mod) parts.push('CmdOrCtrl')
+  if (alt) parts.push('Alt')
+  parts.push(key.length === 1 ? key.toUpperCase() : key)
+  return parts.join('+')
+}
+
+/**
+ * The accelerator each menu item prints, keyed by action — everything in the
+ * map that declares `menuKey`, in Electron's spelling. Sent to main with the
+ * rest of the menu context so that main never spells a key of its own.
+ */
+export function menuAccelerators(): Record<string, string> {
+  return Object.fromEntries(
+    EDITOR_SHORTCUTS.filter((entry) => entry.menuKey).map((entry) => [
+      entry.action as string,
+      accelerator(entry.keys[0] as string),
+    ]),
+  )
 }
 
 /**
