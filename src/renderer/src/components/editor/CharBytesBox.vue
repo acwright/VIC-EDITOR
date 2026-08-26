@@ -19,10 +19,22 @@ const editor = useEditorStore()
 const radix = ref<ByteRadix>('hex')
 const formatted = computed(() => formatBytes(props.bytes, radix.value))
 
+/**
+ * What the field is pointed at. Read from the store rather than from the
+ * `bytes` prop, because the two do not move at the same moment: clicking
+ * another character selects it during `pointerdown`, which runs *before* this
+ * field's blur, while the new prop does not reach this component until the
+ * next render. A commit that asked the prop whether anything had moved would
+ * always be told no.
+ */
+const target = computed(() => `char:${editor.selectedChar}`)
+
 // `draft` mirrors the formatted bytes except while the field is being edited,
 // so external changes (drawing, undo, char switch) keep it in sync.
 const draft = ref(formatted.value)
 const editing = ref(false)
+/** The `target` the in-progress edit began against; null when none is. */
+let editingTarget: string | null = null
 const invalid = ref(false)
 let invalidTimer: ReturnType<typeof setTimeout> | undefined
 
@@ -30,19 +42,41 @@ watch(formatted, (value) => {
   if (!editing.value) draft.value = value
 })
 
+/**
+ * Typing or pasting starts an edit — **focus alone does not**. Selecting the
+ * text to read or copy it is not a change to commit, and treating it as one is
+ * what used to stamp the character you were looking at onto the next one you
+ * clicked: the click selected that character, then the blur committed a draft
+ * belonging to the old one.
+ */
+function beginEdit() {
+  if (!editing.value) editingTarget = target.value
+  editing.value = true
+}
+
 function toggleRadix() {
   radix.value = radix.value === 'hex' ? 'dec' : 'hex'
 }
 
 /** Paste replaces the field, then commits once the browser has inserted it. */
 function onPaste() {
-  editing.value = true
+  beginEdit()
   setTimeout(commit, 0)
 }
 
 /** Parse the draft and, if it's the right run of clean bytes, apply it. */
 function commit() {
+  const edited = editing.value
+  const from = editingTarget
   editing.value = false
+  editingTarget = null
+  // Nothing was typed, or the selection moved out from under what was — either
+  // way there is nothing this field may write. Snapping the draft back is
+  // enough; if the prop has yet to catch up, the watch above finishes the job.
+  if (!edited || from !== target.value) {
+    draft.value = formatted.value
+    return
+  }
   const bytes = parseBytes(draft.value, props.bytes.length)
   if (bytes) {
     editor.setCharPattern(bytes)
@@ -84,10 +118,9 @@ async function copy() {
           ? 'border-alert-bright text-alert-bright'
           : 'border-ink-700 hover:border-ink-500 focus:border-ink-300'
       "
-      @focus="editing = true"
       @input="
         () => {
-          editing = true
+          beginEdit()
           invalid = false
         }
       "
