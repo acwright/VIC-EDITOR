@@ -66,7 +66,13 @@ export function takePendingDocument(): string | null {
   return path
 }
 
-/** Whether a document is waiting — for the launch path, which asks before showing. */
+/**
+ * Whether a document is waiting.
+ *
+ * `openAtLaunch` asks before falling back to the last document (D11): on macOS
+ * the double-click that *started* the app is already queued here by the time
+ * `whenReady` runs (S2), and restoring over it would open the wrong file.
+ */
 export function hasPendingDocument(): boolean {
   return pending !== null
 }
@@ -98,6 +104,22 @@ function notify(): void {
   target.show()
   target.focus()
   target.webContents.send(IPC.DOCUMENT_PENDING)
+}
+
+/**
+ * What a launch opens (D11, D15).
+ *
+ * Windows and Linux name the document on the command line; macOS has already
+ * delivered it to `open-file`, which beats `whenReady` (S2), so by the time a
+ * launch gets here the double-click is *queued* rather than named. `restore` —
+ * the document the app last had open — is therefore the answer only when the
+ * launch asked for nothing at all: requesting it over a pending path is what
+ * makes a double-click open the last document instead of the one clicked.
+ */
+export function openAtLaunch(argv: readonly string[], restore: () => void): void {
+  const launched = documentFromArgv(argv)
+  if (launched) requestOpen(launched)
+  else if (!hasPendingDocument()) restore()
 }
 
 /**

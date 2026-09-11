@@ -17,6 +17,7 @@ import { buildMenu, setMenuContext } from './menu'
 import {
   documentFromArgv,
   installOpenFileHandler,
+  openAtLaunch,
   rendererDidLoad,
   rendererDidUnload,
   requestOpen,
@@ -304,11 +305,9 @@ app.whenReady().then(() => {
   // Windows and Linux deliver a double-click as an argument; macOS has already
   // delivered it to `open-file` above, where argv is empty (S2). Either way the
   // document is queued rather than opened, and the renderer takes it as it
-  // starts — so the first thing painted is the editor, not the launcher.
-  const launched = documentFromArgv(process.argv)
-  if (launched) requestOpen(launched)
-  // Nothing was asked for, so put back what was open at the last quit (D11).
-  else restoreLastDocument()
+  // starts — so the first thing painted is the editor, not the launcher. A
+  // launch that asked for nothing at all gets the last document back (D11).
+  openAtLaunch(process.argv, restoreLastDocument)
 
   createWindow()
 

@@ -21,6 +21,7 @@ vi.mock('electron', () => ({
 const {
   documentFromArgv,
   hasPendingDocument,
+  openAtLaunch,
   rendererDidLoad,
   rendererDidUnload,
   requestOpen,
@@ -89,6 +90,46 @@ describe('requestOpen', () => {
   it('drops a path that is not there rather than queueing a failure', () => {
     requestOpen(join(directory, 'gone.vic20'))
     expect(hasPendingDocument()).toBe(false)
+  })
+})
+
+describe('openAtLaunch', () => {
+  const platform = process.platform
+
+  function pretend(value: string): void {
+    Object.defineProperty(process, 'platform', { value, configurable: true })
+  }
+
+  afterEach(() => pretend(platform))
+
+  it('keeps the double-click that started the app, over the last document', () => {
+    pretend('darwin')
+    // The launch order on macOS: `open-file` has already run by the time
+    // `whenReady` does (S2), so the clicked document is sitting in the queue.
+    requestOpen(document)
+
+    const restore = vi.fn<() => void>()
+    openAtLaunch(['/Applications/VIC-20 Editor.app'], restore)
+
+    // Asking for the remembered document here would overwrite the pending one,
+    // and the app would open the last document instead of the one clicked.
+    expect(restore).not.toHaveBeenCalled()
+    expect(takePendingDocument()).toContain('Title Screen.vic20')
+  })
+
+  it('puts back the last document when the launch asked for nothing (D11)', () => {
+    pretend('darwin')
+    const restore = vi.fn<() => void>()
+    openAtLaunch(['/Applications/VIC-20 Editor.app'], restore)
+    expect(restore).toHaveBeenCalled()
+  })
+
+  it('opens the document a command line names, and restores nothing', () => {
+    pretend('linux')
+    const restore = vi.fn<() => void>()
+    openAtLaunch(['/opt/app/vic20-editor', document], restore)
+    expect(restore).not.toHaveBeenCalled()
+    expect(takePendingDocument()).toContain('Title Screen.vic20')
   })
 })
 
