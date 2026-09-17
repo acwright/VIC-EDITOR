@@ -274,7 +274,7 @@ app.whenReady().then(() => {
   app.setAboutPanelOptions({
     applicationName: PRODUCT_NAME,
     applicationVersion: app.getVersion(),
-    copyright: '\u00a9 2026 A.C. Wright',
+    copyright: '\u00a9 2026 A.C. Wright Design',
     // Ignored on macOS, which uses the bundle icon.
     ...(iconPath ? { iconPath } : {}),
   })
